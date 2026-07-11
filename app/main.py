@@ -1,14 +1,12 @@
 from fastapi import FastAPI
 
-app = FastAPI(
-    title="Job Board API",
-    version="1.0.0",
-)
+from app.jobs.router import router as jobs_router
+
+app = FastAPI(title="Job Board Backend")
+
+app.include_router(jobs_router, prefix="/jobs", tags=["Jobs"])
 
 
 @app.get("/")
 def root():
-    return {
-        "status": "success",
-        "message": "Job Board API is running."
-    }
+    return {"message": "Job Board Backend is running!"}
