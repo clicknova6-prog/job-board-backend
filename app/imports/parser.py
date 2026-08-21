@@ -1,14 +1,17 @@
 """Streaming parser for the Jobg8 XML feed."""
 
+from collections.abc import Callable
 from os import PathLike
 from typing import BinaryIO, Iterator, TypeAlias
 
 from lxml import etree
+from pydantic import ValidationError
 
 from app.imports.schemas import JobFeedRecord
 
 
 XMLSource: TypeAlias = str | PathLike[str] | BinaryIO
+ValidationErrorHandler: TypeAlias = Callable[[dict[str, str | None], ValidationError], None]
 
 
 def job_element_to_dict(element: etree._Element) -> dict[str, str | None]:
@@ -25,12 +28,17 @@ def job_element_to_dict(element: etree._Element) -> dict[str, str | None]:
     }
 
 
-def parse_job_feed(source: XMLSource) -> Iterator[JobFeedRecord]:
+def parse_job_feed(
+    source: XMLSource,
+    *,
+    on_validation_error: ValidationErrorHandler | None = None,
+) -> Iterator[JobFeedRecord]:
     """Yield validated jobs from an XML feed without loading the feed into memory.
 
-    Validation and XML syntax errors intentionally propagate to the caller.
-    The import layer can then fail the import run with the exact bad record or
-    XML error instead of silently discarding data.
+    XML syntax errors always propagate to the caller. By default, Pydantic
+    validation errors also propagate. A caller may provide
+    ``on_validation_error`` to record invalid jobs and continue streaming the
+    rest of the snapshot.
     """
     context = etree.iterparse(
         source,
@@ -51,9 +59,21 @@ def parse_job_feed(source: XMLSource) -> Iterator[JobFeedRecord]:
             continue
 
         try:
-            record = JobFeedRecord.model_validate(job_element_to_dict(element))
+            raw_record = job_element_to_dict(element)
+            try:
+                record = JobFeedRecord.model_validate(raw_record)
+            except ValidationError as error:
+                # Validation errors are only handled when the caller explicitly
+                # opts in. This keeps fail-fast behaviour available to other users
+                # while allowing ImportService to count bad feed records.
+                if on_validation_error is None:
+                    raise
+                on_validation_error(raw_record, error)
+                continue
+
             # Suspending at yield keeps exactly one validated record available
-            # to the caller at a time.
+            # to the caller at a time. The finally block cleans it up only when
+            # iteration resumes, as required for streaming memory usage.
             yield record
         finally:
             # Clearing the completed Job releases its child text and elements.
