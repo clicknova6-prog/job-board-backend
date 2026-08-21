@@ -1,17 +1,18 @@
 """Streaming parser for the Jobg8 XML feed."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from os import PathLike
-from typing import BinaryIO, Iterator, TypeAlias
+from typing import BinaryIO, TypeAlias
 
 from lxml import etree
 from pydantic import ValidationError
 
 from app.imports.schemas import JobFeedRecord
 
-
 XMLSource: TypeAlias = str | PathLike[str] | BinaryIO
-ValidationErrorHandler: TypeAlias = Callable[[dict[str, str | None], ValidationError], None]
+ValidationErrorHandler: TypeAlias = Callable[
+    [dict[str, str | None], ValidationError], None
+]
 
 
 def job_element_to_dict(element: etree._Element) -> dict[str, str | None]:

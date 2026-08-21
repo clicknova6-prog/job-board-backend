@@ -7,7 +7,6 @@ from dotenv import load_dotenv
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-
 # Load the repo-root .env before any code reads DATABASE_URL, so scripts and
 # alembic pick it up without a manual export. utf-8-sig is required because
 # the file carries a UTF-8 BOM, which would otherwise become part of the
@@ -23,7 +22,9 @@ def _database_url() -> str:
     """
     database_url = os.environ.get("DATABASE_URL")
     if not database_url:
-        raise RuntimeError("DATABASE_URL must be configured before using the database layer")
+        raise RuntimeError(
+            "DATABASE_URL must be configured before using the database layer"
+        )
 
     if database_url.startswith("postgres://"):
         return database_url.replace("postgres://", "postgresql+psycopg://", 1)
@@ -38,5 +39,6 @@ engine: Engine = create_engine(_database_url(), pool_pre_ping=True)
 
 # Keeping instances usable after commit is convenient for service-layer code;
 # transaction boundaries will be introduced with repositories later.
-SessionLocal = sessionmaker(bind=engine, class_=Session, autoflush=False, expire_on_commit=False)
-
+SessionLocal = sessionmaker(
+    bind=engine, class_=Session, autoflush=False, expire_on_commit=False
+)

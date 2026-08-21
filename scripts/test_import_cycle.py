@@ -17,13 +17,13 @@ for path in (REPO_ROOT, REPO_ROOT / "scripts"):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from seed_provider import main as ensure_jobg8_provider
 from sqlalchemy import func, select
 
 from app.db.models import ImportRun, Job
 from app.db.session import SessionLocal
 from app.imports.importer import ImportService
 from app.imports.promotion import PromotionService
-from seed_provider import main as ensure_jobg8_provider
 
 FEED_PATH = REPO_ROOT / "tests" / "fixtures" / "sample_feed.xml"
 

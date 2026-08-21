@@ -34,9 +34,7 @@ class Provider(Base):
     __tablename__ = "providers"
     __table_args__ = ({"comment": "Configured upstream job feed sources."},)
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, Identity(always=True), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     feed_url: Mapped[str | None] = mapped_column(
         Text,
@@ -51,7 +49,9 @@ class Provider(Base):
     retry_max_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("3")
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     config: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
@@ -89,9 +89,7 @@ class ImportRun(Base):
         {"comment": "One record per hourly Jobg8 feed import attempt."},
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, Identity(always=True), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     source_name: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -104,22 +102,32 @@ class ImportRun(Base):
     )
     source_uri: Mapped[str | None] = mapped_column(Text)
     source_checksum: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'pending'"))
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pending'")
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     records_received: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
-    records_staged: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    records_staged: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     records_imported: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
     records_rejected: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
-    new_jobs: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    updated_jobs: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
-    deleted_jobs: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    new_jobs: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    updated_jobs: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    deleted_jobs: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     unmapped_fields: Mapped[dict[str, Any]] = mapped_column(
         JSONB,
         nullable=False,
@@ -172,15 +180,15 @@ class JobStaging(Base):
             name="job_staging_salary_range_check",
         ),
         UniqueConstraint(
-            "import_run_id", "source_job_id", name="job_staging_import_run_source_job_unique"
+            "import_run_id",
+            "source_job_id",
+            name="job_staging_import_run_source_job_unique",
         ),
         Index("job_staging_import_run_valid_idx", "import_run_id", "is_valid"),
         {"comment": "Parsed records before promotion into the canonical jobs table."},
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, Identity(always=True), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     import_run_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("import_runs.id", ondelete="CASCADE"),
@@ -223,7 +231,9 @@ class JobStaging(Base):
         nullable=False,
         server_default=text("'[]'::jsonb"),
     )
-    is_valid: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    is_valid: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     staged_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -254,9 +264,7 @@ class Job(Base):
         CheckConstraint(
             "btrim(description) <> ''", name="jobs_description_not_blank_check"
         ),
-        CheckConstraint(
-            "apply_url ~* '^https?://'", name="jobs_apply_url_http_check"
-        ),
+        CheckConstraint("apply_url ~* '^https?://'", name="jobs_apply_url_http_check"),
         CheckConstraint(
             "salary_min IS NULL OR salary_max IS NULL OR salary_min <= salary_max",
             name="jobs_salary_range_check",
@@ -284,9 +292,7 @@ class Job(Base):
         {"comment": "Current canonical job catalogue from Jobg8 snapshots."},
     )
 
-    id: Mapped[int] = mapped_column(
-        BigInteger, Identity(always=True), primary_key=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     source_name: Mapped[str] = mapped_column(Text, nullable=False)
     provider_id: Mapped[int] = mapped_column(
         BigInteger,
@@ -343,7 +349,9 @@ class Job(Base):
         BigInteger,
         ForeignKey("import_runs.id", ondelete="RESTRICT"),
     )
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
     first_imported_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

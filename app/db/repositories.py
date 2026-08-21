@@ -14,7 +14,7 @@ Rules enforced here:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -154,7 +154,7 @@ class JobRepository:
                 errors belong in validation_errors on JobStaging, not here.
         """
         run.status = status
-        run.completed_at = datetime.now(tz=timezone.utc)
+        run.completed_at = datetime.now(tz=UTC)
         run.records_received = received
         run.records_staged = staged
         run.records_imported = imported
@@ -202,52 +202,43 @@ class JobRepository:
             source_job_id=record.sender_reference,
             raw_payload=raw_payload,
             payload_hash=payload_hash,
-
             # --- Advertiser fields ---
             advertiser_name=record.advertiser_name,
             advertiser_type=record.advertiser_type,
             display_reference=record.display_reference,
-
             # --- Classification and title ---
             classification=record.classification,
             title=record.title,
             description=record.description,
-
             # --- Location fields ---
             country_name=record.country_name,
             location=record.location,
             area=record.area,
             postal_code=record.postal_code,
-
             # --- Application URL ---
             # AnyHttpUrl must be cast to str — storing the Pydantic object
             # directly would persist its repr, not the URL string.
             apply_url=str(record.apply_url),
-
             # --- Job metadata ---
             language_code=record.language_code,
             employment_type=record.employment_type,
             start_date_text=record.start_date_text,
             duration=record.duration,
             work_hours=record.work_hours,
-
             # --- Salary fields ---
             salary_currency=record.salary_currency,
             salary_min=record.salary_min,
             salary_max=record.salary_max,
             salary_period=record.salary_period,
             salary_additional=record.salary_additional,
-
             # --- Logo URL (also AnyHttpUrl — same cast needed) ---
             advertiser_logo_url=(
                 str(record.advertiser_logo_url)
                 if record.advertiser_logo_url is not None
                 else None
             ),
-
             # --- Provider/commercial job type ---
             job_type=record.job_type,
-
             # --- Validation state (set by service layer later if needed) ---
             validation_errors=list(),
             is_valid=True,
@@ -436,7 +427,9 @@ class PromotionRepository:
         job.last_imported_at = now
         job.last_seen_import_run_id = run_id
 
-    def deactivate_stale_jobs(self, provider_id: int, run_id: int, now: datetime) -> int:
+    def deactivate_stale_jobs(
+        self, provider_id: int, run_id: int, now: datetime
+    ) -> int:
         """Soft-delete active jobs for a provider that this run did not see.
 
         Uses an ORM-enabled bulk UPDATE rather than loading each Job, since a

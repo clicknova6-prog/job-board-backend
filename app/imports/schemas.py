@@ -7,7 +7,7 @@ names use the project's snake_case naming convention.
 
 import re
 from decimal import Decimal
-from typing import Annotated, Any, Optional, Self
+from typing import Annotated, Any, Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -19,7 +19,6 @@ from pydantic import (
     ValidationError,
     model_validator,
 )
-
 
 CurrencyCode = Annotated[
     str,
@@ -105,12 +104,12 @@ class JobFeedRecord(BaseModel):
         extra="allow",
     )
 
-    advertiser_name: Optional[str] = Field(
+    advertiser_name: str | None = Field(
         default=None,
         alias="AdvertiserName",
         description="Name of the employer, recruiter, or advertiser.",
     )
-    advertiser_type: Optional[str] = Field(
+    advertiser_type: str | None = Field(
         default=None,
         alias="AdvertiserType",
         description="Feed-supplied advertiser category, such as Agency.",
@@ -120,12 +119,12 @@ class JobFeedRecord(BaseModel):
         min_length=1,
         description="Unique Jobg8 identifier for this job and the upsert key within the provider.",
     )
-    display_reference: Optional[str] = Field(
+    display_reference: str | None = Field(
         default=None,
         alias="DisplayReference",
         description="Human-facing job reference supplied by the provider.",
     )
-    classification: Optional[str] = Field(
+    classification: str | None = Field(
         default=None,
         alias="Classification",
         description="Primary job category supplied by the feed.",
@@ -140,22 +139,22 @@ class JobFeedRecord(BaseModel):
         min_length=1,
         description="Full job description; text supports large CDATA content.",
     )
-    country_name: Optional[str] = Field(
+    country_name: str | None = Field(
         default=None,
         alias="Country",
         description="Country name exactly as supplied; the feed does not provide a country code.",
     )
-    location: Optional[str] = Field(
+    location: str | None = Field(
         default=None,
         alias="Location",
         description="Free-form location, which may be a city, region, or Remote.",
     )
-    area: Optional[str] = Field(
+    area: str | None = Field(
         default=None,
         alias="Area",
         description="Broader geographic area supplied by the feed.",
     )
-    postal_code: Optional[str] = Field(
+    postal_code: str | None = Field(
         default=None,
         alias="PostalCode",
         description="Postal code stored as text to preserve leading zeros and non-numeric values.",
@@ -170,57 +169,57 @@ class JobFeedRecord(BaseModel):
             "otherwise; a value failing both checks still rejects the record."
         ),
     )
-    language_code: Optional[str] = Field(
+    language_code: str | None = Field(
         default=None,
         alias="Language",
         description="Provider language code, for example 2057; it is retained as text, not inferred as an ISO code.",
     )
-    employment_type: Optional[str] = Field(
+    employment_type: str | None = Field(
         default=None,
         alias="EmploymentType",
         description="Employment arrangement, such as Full Time or Contract.",
     )
-    start_date_text: Optional[str] = Field(
+    start_date_text: str | None = Field(
         default=None,
         alias="StartDate",
         description="Source start-date wording, stored as text because it can be Immediate rather than a date.",
     )
-    duration: Optional[str] = Field(
+    duration: str | None = Field(
         default=None,
         alias="Duration",
         description="Source duration wording, such as Permanent or a contract term.",
     )
-    work_hours: Optional[str] = Field(
+    work_hours: str | None = Field(
         default=None,
         alias="WorkHours",
         description="Working-hours wording, such as Full Time or Part Time.",
     )
-    salary_currency: Optional[CurrencyCode] = Field(
+    salary_currency: CurrencyCode | None = Field(
         default=None,
         alias="SalaryCurrency",
         description="Three-letter currency code for the salary values.",
     )
-    salary_min: Optional[SalaryAmount] = Field(
+    salary_min: SalaryAmount | None = Field(
         default=None,
         alias="SalaryMinimum",
         description="Optional lower salary amount.",
     )
-    salary_max: Optional[SalaryAmount] = Field(
+    salary_max: SalaryAmount | None = Field(
         default=None,
         alias="SalaryMaximum",
         description="Optional upper salary amount.",
     )
-    salary_period: Optional[str] = Field(
+    salary_period: str | None = Field(
         default=None,
         alias="SalaryPeriod",
         description="Salary frequency, such as Monthly or Annual.",
     )
-    salary_additional: Optional[str] = Field(
+    salary_additional: str | None = Field(
         default=None,
         alias="SalaryAdditional",
         description="Additional salary or benefits text supplied by the provider.",
     )
-    advertiser_logo_url: Optional[str] = Field(
+    advertiser_logo_url: str | None = Field(
         default=None,
         alias="LogoURL",
         description=(
@@ -228,7 +227,7 @@ class JobFeedRecord(BaseModel):
             "rather than rejecting the record when it does not parse."
         ),
     )
-    job_type: Optional[str] = Field(
+    job_type: str | None = Field(
         default=None,
         alias="JobType",
         description="Provider job category, for example TRAFFIC or ATS.",
@@ -237,17 +236,17 @@ class JobFeedRecord(BaseModel):
     # These fields are validated because they occur in every XML record, but
     # they deliberately have no dedicated PostgreSQL columns. The importer
     # keeps them in source_payload with the complete original record.
-    sell_price: Optional[SellPriceAmount] = Field(
+    sell_price: SellPriceAmount | None = Field(
         default=None,
         alias="SellPrice",
         description="Optional provider commercial price; retained only in source_payload.",
     )
-    sell_price_currency: Optional[CurrencyCode] = Field(
+    sell_price_currency: CurrencyCode | None = Field(
         default=None,
         alias="SellPriceCurrency",
         description="Currency of SellPrice; retained only in source_payload.",
     )
-    revenue_type: Optional[str] = Field(
+    revenue_type: str | None = Field(
         default=None,
         alias="RevenueType",
         description="Provider commercial revenue classification; retained only in source_payload.",
@@ -364,7 +363,9 @@ class JobFeedRecord(BaseModel):
         application_url = supplied("ApplicationURL")
         if application_url is not None:
             try:
-                data["ApplicationURL"] = str(_URL_ADAPTER.validate_python(application_url))
+                data["ApplicationURL"] = str(
+                    _URL_ADAPTER.validate_python(application_url)
+                )
             except ValidationError:
                 fallback.add("apply_url")
                 data["ApplicationURL"] = (

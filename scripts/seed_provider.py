@@ -19,7 +19,9 @@ def main() -> None:
     with SessionLocal() as session:
         existing = session.scalar(select(Provider).where(Provider.name == "jobg8"))
         if existing is not None:
-            print(f"Provider 'jobg8' already exists (id={existing.id}); config not changed")
+            print(
+                f"Provider 'jobg8' already exists (id={existing.id}); config not changed"
+            )
             return
 
         provider = Provider(

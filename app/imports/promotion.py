@@ -8,12 +8,14 @@ promotion decides what those records mean for the live jobs table.
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from sqlalchemy.exc import OperationalError
 
 from app.db.models import Job, JobStaging
 from app.db.repositories import PromotionRepository
 from app.db.session import SessionLocal
-
+from app.imports.exceptions import TransientImportError
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ class PromotionService:
 
     def run(self) -> PromotionSummary:
         """Run the anomaly check, then promote or abort, and return counts."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         with SessionLocal() as session:
             repo = PromotionRepository(session)
@@ -103,7 +105,10 @@ class PromotionService:
                     )
                     self.logger.error(error_message)
                     repo.finish_promotion(
-                        run, status="failed", records_imported=0, error_message=error_message
+                        run,
+                        status="failed",
+                        records_imported=0,
+                        error_message=error_message,
                     )
                     repo.commit()
                     return PromotionSummary(
@@ -145,7 +150,9 @@ class PromotionService:
                     if new_in_batch:
                         repo.flush()
                         for job, staged in new_in_batch:
-                            slug_base = slugify(f"{staged.title or ''}-{staged.advertiser_name or ''}")
+                            slug_base = slugify(
+                                f"{staged.title or ''}-{staged.advertiser_name or ''}"
+                            )
                             job.slug = f"{slug_base}-{job.id}"
 
                     repo.commit()
@@ -158,7 +165,9 @@ class PromotionService:
                         unchanged_jobs,
                     )
 
-                deactivated_jobs = repo.deactivate_stale_jobs(run.provider_id, run.id, now)
+                deactivated_jobs = repo.deactivate_stale_jobs(
+                    run.provider_id, run.id, now
+                )
                 repo.finish_promotion(
                     run,
                     status="completed",
@@ -170,8 +179,16 @@ class PromotionService:
                 )
                 repo.commit()
 
-            except Exception:
+            except OperationalError as error:
                 repo.rollback()
+                self._mark_failed(error)
+                raise TransientImportError(
+                    f"Temporary database failure during promotion: {error}",
+                    import_run_id=self.import_run_id,
+                ) from error
+            except Exception as error:
+                repo.rollback()
+                self._mark_failed(error)
                 raise
 
         return PromotionSummary(
@@ -180,6 +197,34 @@ class PromotionService:
             unchanged_jobs=unchanged_jobs,
             deactivated_jobs=deactivated_jobs,
         )
+
+    def _mark_failed(self, error: BaseException) -> None:
+        """Persist promotion failure after its working transaction rolls back."""
+        try:
+            with SessionLocal() as session:
+                repo = PromotionRepository(session)
+                run = repo.get_import_run(self.import_run_id)
+                if run is None:
+                    self.logger.error(
+                        "Cannot mark missing import run as failed",
+                        extra={"import_run_id": self.import_run_id},
+                    )
+                    return
+                repo.finish_promotion(
+                    run,
+                    status="failed",
+                    records_imported=run.records_imported,
+                    new_jobs=run.new_jobs,
+                    updated_jobs=run.updated_jobs,
+                    deleted_jobs=run.deleted_jobs,
+                    error_message=str(error),
+                )
+                repo.commit()
+        except Exception:
+            self.logger.exception(
+                "Could not persist failed promotion outcome",
+                extra={"import_run_id": self.import_run_id},
+            )
 
     @staticmethod
     def _anomaly_reasons(

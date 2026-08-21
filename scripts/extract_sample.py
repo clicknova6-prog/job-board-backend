@@ -11,7 +11,9 @@ from pathlib import Path
 
 from lxml import etree
 
-DEFAULT_OUTPUT = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "sample_feed.xml"
+DEFAULT_OUTPUT = (
+    Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "sample_feed.xml"
+)
 JOB_TAG = "Job"
 
 
@@ -52,7 +54,10 @@ def extract_sample(zip_path: Path, output_path: Path, max_records: int) -> int:
             count = 0
 
             for _, element in context:
-                if not isinstance(element.tag, str) or etree.QName(element).localname != JOB_TAG:
+                if (
+                    not isinstance(element.tag, str)
+                    or etree.QName(element).localname != JOB_TAG
+                ):
                     continue
 
                 if new_root is None:

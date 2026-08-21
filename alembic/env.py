@@ -1,12 +1,12 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
+from sqlalchemy import engine_from_config, pool
 
 from alembic import context
-from app.db.base import Base
+
 # Importing the model module registers every mapped table with Base.metadata.
 from app.db import models  # noqa: F401
+from app.db.base import Base
 from app.db.session import _database_url
 
 # this is the Alembic Config object, which provides

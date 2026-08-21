@@ -3,14 +3,16 @@
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from app.imports.hashing import compute_payload_hash
-from pydantic import ValidationError
 
-from app.db.repositories import JobRepository
+from pydantic import ValidationError
+from sqlalchemy.exc import OperationalError
+
+from app.db.repositories import JobRepository, PromotionRepository
 from app.db.session import SessionLocal
+from app.imports.exceptions import TransientImportError
+from app.imports.hashing import compute_payload_hash
 from app.imports.parser import parse_job_feed
 from app.imports.schemas import JobFeedRecord
-
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,8 @@ class ImportService:
         self,
         feed_path: str | Path,
         *,
+        provider_id: int,
+        import_run_id: int | None = None,
         progress_interval: int = 25_000,
         service_logger: logging.Logger | None = None,
     ) -> None:
@@ -45,8 +49,72 @@ class ImportService:
             raise ValueError("progress_interval must be greater than zero")
 
         self.feed_path = Path(feed_path)
+        self.provider_id = provider_id
+        self.import_run_id = import_run_id
         self.progress_interval = progress_interval
         self.logger = service_logger or logger
+
+    @classmethod
+    def start_run(
+        cls,
+        provider_id: int,
+        *,
+        source_uri: str | None = None,
+    ) -> int:
+        """Create and commit an authoritative import-run record."""
+        try:
+            with SessionLocal() as session:
+                provider_repo = PromotionRepository(session)
+                provider = provider_repo.get_provider(provider_id)
+                if provider is None:
+                    raise ValueError(f"Provider {provider_id} does not exist")
+
+                repo = JobRepository(session)
+                run = repo.create_import_run(
+                    source_name=provider.name,
+                    source_uri=source_uri,
+                )
+                repo.flush()
+                import_run_id = run.id
+                repo.commit()
+                return import_run_id
+        except OperationalError as error:
+            raise TransientImportError(
+                f"Could not create an import run for provider {provider_id}: {error}"
+            ) from error
+
+    @staticmethod
+    def mark_failed(import_run_id: int, error: BaseException) -> bool:
+        """Persist a failed outcome in a transaction independent of staging."""
+        try:
+            with SessionLocal() as session:
+                lookup_repo = PromotionRepository(session)
+                run = lookup_repo.get_import_run(import_run_id)
+                if run is None:
+                    logger.error(
+                        "Cannot mark missing import run as failed",
+                        extra={"import_run_id": import_run_id},
+                    )
+                    return False
+
+                repo = JobRepository(session)
+                repo.finish_import(
+                    run=run,
+                    status="failed",
+                    received=run.records_received,
+                    staged=run.records_staged,
+                    imported=run.records_imported,
+                    rejected=run.records_rejected,
+                    error_message=str(error),
+                )
+                repo.commit()
+                return True
+        except Exception:
+            logger.exception(
+                "Could not persist failed import outcome",
+                extra={"import_run_id": import_run_id},
+            )
+            return False
 
     def run(self) -> ImportSummary:
         """Validate and stage every job in the feed, then return final counts.
@@ -62,7 +130,7 @@ class ImportService:
         total_jobs = 0
         valid_jobs = 0
         invalid_jobs = 0
-        import_run_id: int
+        import_run_id = self.import_run_id
         # Unknown XML element name -> number of records it appeared in. The
         # schema allows extras rather than rejecting them, so this is the only
         # signal that the feed has grown a field the schema does not map.
@@ -72,21 +140,26 @@ class ImportService:
         # from what the schema expects, even though no record was rejected.
         field_fallback_warnings: dict[str, int] = {}
 
-        with SessionLocal() as session:
-            repo = JobRepository(session)
-
-            try:
-                run = repo.create_import_run(
-                    source_name="jobg8",
+        try:
+            if import_run_id is None:
+                import_run_id = self.start_run(
+                    self.provider_id,
                     source_uri=str(self.feed_path),
                 )
-                # Flush so that run.id is populated from the Identity sequence
-                # before we pass the run object to stage_job().
-                repo.flush()
+                self.import_run_id = import_run_id
 
-                # Capture the id while the session is still open so callers can
-                # hand it to the promotion phase without re-querying.
-                import_run_id = run.id
+            with SessionLocal() as session:
+                lookup_repo = PromotionRepository(session)
+                run = lookup_repo.get_import_run(import_run_id)
+                if run is None:
+                    raise ValueError(f"ImportRun {import_run_id} does not exist")
+                if run.provider_id != self.provider_id:
+                    raise ValueError(
+                        f"ImportRun {import_run_id} belongs to provider "
+                        f"{run.provider_id}, not provider {self.provider_id}"
+                    )
+
+                repo = JobRepository(session)
 
                 def handle_validation_error(
                     raw_record: dict[str, str | None],
@@ -181,9 +254,17 @@ class ImportService:
                 )
                 repo.commit()
 
-            except Exception:
-                repo.rollback()
-                raise
+        except OperationalError as error:
+            if import_run_id is not None:
+                self.mark_failed(import_run_id, error)
+            raise TransientImportError(
+                f"Temporary database failure during import: {error}",
+                import_run_id=import_run_id,
+            ) from error
+        except Exception as error:
+            if import_run_id is not None:
+                self.mark_failed(import_run_id, error)
+            raise
 
         return ImportSummary(
             import_run_id=import_run_id,

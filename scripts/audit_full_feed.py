@@ -24,7 +24,12 @@ from lxml import etree
 from pydantic import AnyHttpUrl, TypeAdapter, ValidationError
 
 from app.imports.parser import job_element_to_dict
-from app.imports.schemas import CurrencyCode, JobFeedRecord, SalaryAmount, SellPriceAmount
+from app.imports.schemas import (
+    CurrencyCode,
+    JobFeedRecord,
+    SalaryAmount,
+    SellPriceAmount,
+)
 
 DEFAULT_ZIP = r"C:/Users/5A_Traders/Downloads/Jobs.zip"
 
@@ -66,12 +71,12 @@ def main() -> None:
     adapters = {name: TypeAdapter(tp) for name, tp in TARGETS.items()}
     known_aliases = {f.alias for f in fields.values() if f.alias}
 
-    tag_present = Counter()      # alias -> records where the tag exists at all
-    value_present = Counter()    # alias -> records where it exists and is non-blank
-    fail_count = Counter()       # field -> non-blank values that fail validation
+    tag_present = Counter()  # alias -> records where the tag exists at all
+    value_present = Counter()  # alias -> records where it exists and is non-blank
+    fail_count = Counter()  # field -> non-blank values that fail validation
     fail_values = {name: Counter() for name in TARGETS}
     fail_reason = {name: Counter() for name in TARGETS}
-    unmapped = Counter()         # unknown element name -> records containing it
+    unmapped = Counter()  # unknown element name -> records containing it
     total = 0
 
     with zipfile.ZipFile(zip_path) as zf:
@@ -92,7 +97,10 @@ def main() -> None:
             )
 
             for _, element in context:
-                if not isinstance(element.tag, str) or etree.QName(element).localname != "Job":
+                if (
+                    not isinstance(element.tag, str)
+                    or etree.QName(element).localname != "Job"
+                ):
                     continue
 
                 raw = job_element_to_dict(element)
@@ -113,7 +121,10 @@ def main() -> None:
                         adapter.validate_python(value)
                     except ValidationError as error:
                         fail_count[name] += 1
-                        if len(fail_values[name]) < MAX_DISTINCT or value in fail_values[name]:
+                        if (
+                            len(fail_values[name]) < MAX_DISTINCT
+                            or value in fail_values[name]
+                        ):
                             fail_values[name][value] += 1
                         fail_reason[name][error.errors()[0]["type"]] += 1
 
@@ -135,7 +146,9 @@ def main() -> None:
     print("=" * 78)
 
     print()
-    print(f"{'field':22} {'tag present':>13} {'non-blank':>11} {'failing':>11} {'fail %':>8}")
+    print(
+        f"{'field':22} {'tag present':>13} {'non-blank':>11} {'failing':>11} {'fail %':>8}"
+    )
     print("-" * 78)
     for name in TARGETS:
         alias = alias_of[name]
@@ -176,7 +189,7 @@ def main() -> None:
         print(f"  {'element':40} {'records':>12} {'% of feed':>11}")
         print("  " + "-" * 65)
         for tag, count in unmapped.most_common():
-            print(f"  {tag:40} {count:>12,} {count/total*100:>10.4f}%")
+            print(f"  {tag:40} {count:>12,} {count / total * 100:>10.4f}%")
 
     print()
     print("=" * 78)
@@ -184,7 +197,7 @@ def main() -> None:
     print("=" * 78)
     for tag, count in sorted(tag_present.items()):
         mark = "  " if tag in known_aliases else " *"
-        print(f" {mark} {tag:40} {count:>12,} {count/total*100:>8.2f}%")
+        print(f" {mark} {tag:40} {count:>12,} {count / total * 100:>8.2f}%")
     print("\n  * = unmapped (not in JobFeedRecord)")
 
 
