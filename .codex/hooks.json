@@ -1,0 +1,32 @@
+{
+  "description": "Repository formatting, linting, and test hooks.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "repo=\"$(git rev-parse --show-toplevel)\"; \"$repo/.venv/Scripts/ruff.exe\" format \"$repo\"; \"$repo/.venv/Scripts/ruff.exe\" check --fix \"$repo\"; true",
+            "commandWindows": "$repo = git rev-parse --show-toplevel; $ruff = Join-Path $repo '.venv\\Scripts\\ruff.exe'; & $ruff format $repo; & $ruff check --fix $repo; exit 0",
+            "statusMessage": "Running ruff format + check --fix on the repo...",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "repo=\"$(git rev-parse --show-toplevel)\"; \"$repo/.venv/Scripts/python.exe\" \"$repo/.codex/hooks/pytest_stop.py\"",
+            "commandWindows": "$repo = git rev-parse --show-toplevel; & (Join-Path $repo '.venv\\Scripts\\python.exe') (Join-Path $repo '.codex\\hooks\\pytest_stop.py')",
+            "statusMessage": "Running pytest -q...",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
