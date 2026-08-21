@@ -15,12 +15,63 @@ Rules enforced here:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ImportRun, Job, JobStaging, Provider
 from app.imports.schemas import JobFeedRecord
+
+
+_SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
+    {
+        "account",
+        "accountid",
+        "accountnumber",
+        "apikey",
+        "auth",
+        "authorization",
+        "credential",
+        "key",
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "token",
+        "user",
+        "username",
+    }
+)
+
+
+def _mask_sensitive_query_parameters(source_uri: str | None) -> str | None:
+    """Redact credential-like query values while preserving URL diagnostics."""
+    if source_uri is None:
+        return None
+
+    parsed = urlsplit(source_uri)
+    if not parsed.query:
+        return source_uri
+
+    masked_parts: list[str] = []
+    for part in parsed.query.split("&"):
+        encoded_name, separator, value = part.partition("=")
+        normalized_name = "".join(
+            character
+            for character in unquote_plus(encoded_name).casefold()
+            if character.isalnum()
+        )
+        is_sensitive = (
+            normalized_name in _SENSITIVE_QUERY_PARAMETER_NAMES
+            or normalized_name.endswith(("password", "secret", "token"))
+        )
+        if separator and is_sensitive:
+            masked_parts.append(f"{encoded_name}=****")
+        else:
+            masked_parts.append(part)
+
+    return urlunsplit(parsed._replace(query="&".join(masked_parts)))
 
 
 class JobRepository:
@@ -93,7 +144,7 @@ class JobRepository:
         run = ImportRun(
             source_name=source_name,
             provider_id=provider_id,
-            source_uri=source_uri,
+            source_uri=_mask_sensitive_query_parameters(source_uri),
             source_checksum=source_checksum,
             status="processing",
         )
