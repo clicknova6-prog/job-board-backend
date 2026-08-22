@@ -96,3 +96,15 @@ def test_sitemap_routes_serve_files_and_return_404(
     assert client.get("/sitemap-1.xml.gz").content == b"gzip-content"
     assert client.get("/sitemap-2.xml.gz").status_code == 404
     assert client.get("/sitemap-invalid.xml.gz").status_code == 404
+
+
+def test_robots_txt_uses_configured_public_site_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PUBLIC_SITE_BASE_URL", "https://configured.example")
+
+    response = TestClient(app).get("/robots.txt")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "Sitemap: https://configured.example/sitemap.xml" in response.text

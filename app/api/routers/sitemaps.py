@@ -3,11 +3,27 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.core.config import SitemapSettings
 
 router = APIRouter(tags=["Sitemaps"])
+
+
+@router.get("/robots.txt", response_class=PlainTextResponse)
+def robots_txt() -> PlainTextResponse:
+    """Serve crawler directives using the configured public site URL."""
+    base_url = SitemapSettings.from_environment().public_site_base_url
+    content = (
+        "User-agent: *\n"
+        "Allow: /job/\n"
+        "Disallow: /*?\n"
+        "Disallow: /admin\n"
+        "Disallow: /r/\n"
+        "\n"
+        f"Sitemap: {base_url}/sitemap.xml\n"
+    )
+    return PlainTextResponse(content)
 
 
 def _sitemap_file(filename: str):
