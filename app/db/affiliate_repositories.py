@@ -52,6 +52,23 @@ class AffiliateRepository:
         )
         return [dict(row) for row in result.mappings()]
 
+    async def lookup_jobs_by_ids(
+        self,
+        provider_id: int,
+        job_ids: list[int],
+    ) -> list[dict[str, Any]]:
+        """Return confirmed jobs and apply URLs for link generation."""
+        if not job_ids:
+            return []
+
+        result = await self._session.execute(
+            select(Job.id, Job.apply_url).where(
+                Job.provider_id == provider_id,
+                Job.id.in_(job_ids),
+            )
+        )
+        return [dict(row) for row in result.mappings()]
+
     async def create_affiliate_links(
         self, links: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
