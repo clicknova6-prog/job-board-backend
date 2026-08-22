@@ -2,6 +2,7 @@
 
 import os
 import pkgutil
+from datetime import timedelta
 from pathlib import Path
 
 from celery import Celery
@@ -30,6 +31,17 @@ celery_app.autodiscover_tasks(
     related_name=None,
     force=True,
 )
+
+celery_app.conf.beat_schedule = {
+    "dispatch-provider-imports": {
+        "task": "app.tasks.scheduler_tasks.dispatch_provider_imports",
+        "schedule": timedelta(minutes=2),
+    },
+    "hard-delete-expired-jobs": {
+        "task": "app.tasks.cleanup_tasks.hard_delete_expired_jobs",
+        "schedule": timedelta(minutes=30),
+    },
+}
 
 # On Windows, run workers with --pool=solo because Celery's default prefork
 # pool is not supported: celery -A app.celery_app worker --loglevel=info --pool=solo

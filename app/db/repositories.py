@@ -14,10 +14,11 @@ Rules enforced here:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, exists, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models import ImportRun, Job, JobStaging, Provider
@@ -72,6 +73,26 @@ def _mask_sensitive_query_parameters(source_uri: str | None) -> str | None:
             masked_parts.append(part)
 
     return urlunsplit(parsed._replace(query="&".join(masked_parts)))
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderScheduleState:
+    """Scheduling data detached from ORM objects for task-layer decisions."""
+
+    provider_id: int
+    provider_name: str
+    schedule_interval_minutes: int | None
+    last_completed_at: datetime | None
+    has_processing_import: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRetentionPolicy:
+    """Retention configuration detached from the Provider ORM object."""
+
+    provider_id: int
+    provider_name: str
+    retention_hours: int | None
 
 
 class JobRepository:
@@ -547,4 +568,126 @@ class PromotionRepository:
         Call this in an exception handler to undo all changes made since the
         last commit. The session remains usable after a rollback.
         """
+        self._session.rollback()
+
+
+class SchedulerRepository:
+    """Read-only persistence operations used by the import dispatcher."""
+
+    def __init__(self, session: Session) -> None:
+        """Store the active SQLAlchemy session."""
+        self._session = session
+
+    def list_active_provider_schedules(self) -> list[ProviderScheduleState]:
+        """Return scheduling state for every active provider."""
+        last_completed_at = (
+            select(func.max(ImportRun.completed_at))
+            .where(
+                ImportRun.provider_id == Provider.id,
+                ImportRun.status == "completed",
+            )
+            .correlate(Provider)
+            .scalar_subquery()
+        )
+        has_processing_import = exists().where(
+            ImportRun.provider_id == Provider.id,
+            ImportRun.status == "processing",
+        )
+        rows = self._session.execute(
+            select(
+                Provider.id,
+                Provider.name,
+                Provider.schedule_interval_minutes,
+                last_completed_at.label("last_completed_at"),
+                has_processing_import.label("has_processing_import"),
+            )
+            .where(Provider.is_active.is_(True))
+            .order_by(Provider.id)
+        )
+        return [
+            ProviderScheduleState(
+                provider_id=row.id,
+                provider_name=row.name,
+                schedule_interval_minutes=row.schedule_interval_minutes,
+                last_completed_at=row.last_completed_at,
+                has_processing_import=row.has_processing_import,
+            )
+            for row in rows
+        ]
+
+
+class CleanupRepository:
+    """Persistence operations for expired soft-deleted job cleanup."""
+
+    def __init__(self, session: Session) -> None:
+        """Store the active SQLAlchemy session."""
+        self._session = session
+
+    def list_provider_retention_policies(self) -> list[ProviderRetentionPolicy]:
+        """Return hard-delete retention settings for every provider."""
+        rows = self._session.execute(
+            select(
+                Provider.id,
+                Provider.name,
+                Provider.deleted_job_retention_hours,
+            ).order_by(Provider.id)
+        )
+        return [
+            ProviderRetentionPolicy(
+                provider_id=row.id,
+                provider_name=row.name,
+                retention_hours=row.deleted_job_retention_hours,
+            )
+            for row in rows
+        ]
+
+    def find_expired_job_ids(
+        self,
+        *,
+        provider_id: int,
+        cutoff: datetime,
+        limit: int,
+    ) -> list[int]:
+        """Find one ordered batch of expired soft-deleted job IDs."""
+        return list(
+            self._session.scalars(
+                select(Job.id)
+                .where(
+                    Job.provider_id == provider_id,
+                    Job.is_active.is_(False),
+                    Job.deactivated_at.is_not(None),
+                    Job.deactivated_at < cutoff,
+                )
+                .order_by(Job.id)
+                .limit(limit)
+            )
+        )
+
+    def hard_delete_expired_jobs(
+        self,
+        *,
+        job_ids: list[int],
+        provider_id: int,
+        cutoff: datetime,
+    ) -> int:
+        """Delete selected jobs after rechecking all expiration predicates."""
+        if not job_ids:
+            return 0
+        result = self._session.execute(
+            delete(Job).where(
+                Job.id.in_(job_ids),
+                Job.provider_id == provider_id,
+                Job.is_active.is_(False),
+                Job.deactivated_at.is_not(None),
+                Job.deactivated_at < cutoff,
+            )
+        )
+        return result.rowcount
+
+    def commit(self) -> None:
+        """Commit one cleanup batch."""
+        self._session.commit()
+
+    def rollback(self) -> None:
+        """Roll back the current cleanup batch."""
         self._session.rollback()
