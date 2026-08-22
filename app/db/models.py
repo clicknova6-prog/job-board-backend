@@ -420,6 +420,45 @@ class Job(Base):
         foreign_keys=[last_seen_import_run_id],
     )
     provider: Mapped[Provider] = relationship(foreign_keys=[provider_id])
+    affiliate_link: Mapped[AffiliateLink | None] = relationship(
+        "AffiliateLink",
+        back_populates="job",
+        uselist=False,
+    )
+
+
+class AffiliateLink(Base):
+    """A stable public affiliate redirect identifier for one job."""
+
+    __tablename__ = "affiliate_links"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_affiliate_links_job_id"),
+        Index("ix_affiliate_links_short_hash", "short_hash", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    short_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    job_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("providers.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    created_by_admin_id: Mapped[UUIDValue | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    job: Mapped[Job] = relationship("Job", back_populates="affiliate_link")
+    provider: Mapped[Provider] = relationship("Provider")
+    created_by: Mapped[AdminUser | None] = relationship("AdminUser")
 
 
 class User(Base):
