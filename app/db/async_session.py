@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -48,3 +49,9 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
     expire_on_commit=False,
 )
+
+
+async def get_async_session() -> AsyncIterator[AsyncSession]:
+    """Yield one request-scoped async database session for FastAPI dependencies."""
+    async with AsyncSessionLocal() as session:
+        yield session

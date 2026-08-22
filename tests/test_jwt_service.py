@@ -175,3 +175,22 @@ def test_disabled_owner_rejects_rotation_and_revokes_all_tokens(
         assert all(token.revoked_at is not None for token in repository.tokens)
 
     asyncio.run(run())
+
+
+def test_refresh_token_scope_mismatch_is_rejected_before_mutation() -> None:
+    async def run() -> None:
+        subject_id = uuid4()
+        repository = _FakeTokenRepository()
+        service = _service(repository)
+        raw_token = await service.issue_refresh_token(subject_id, "user")
+
+        with pytest.raises(InvalidRefreshTokenError):
+            await service.rotate_refresh_token(
+                raw_token,
+                expected_subject_type="admin",
+            )
+
+        assert repository.tokens[0].revoked_at is None
+        assert len(repository.tokens) == 1
+
+    asyncio.run(run())

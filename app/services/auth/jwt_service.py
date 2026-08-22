@@ -121,13 +121,24 @@ class JWTService:
             raise InvalidAccessTokenError("User access token must not contain a role")
         return claims
 
-    async def rotate_refresh_token(self, raw_token: str) -> tuple[str, str]:
+    async def rotate_refresh_token(
+        self,
+        raw_token: str,
+        *,
+        expected_subject_type: SubjectType | None = None,
+    ) -> tuple[str, str]:
         """Atomically revoke a valid refresh token and issue its replacements."""
         now = datetime.now(tz=UTC)
         stored = await self._repository.get_refresh_token_for_update(
             _hash_refresh_token(raw_token)
         )
         if stored is None:
+            await self._repository.rollback()
+            raise InvalidRefreshTokenError("Invalid refresh token")
+        if (
+            expected_subject_type is not None
+            and stored.subject_type != expected_subject_type
+        ):
             await self._repository.rollback()
             raise InvalidRefreshTokenError("Invalid refresh token")
 
@@ -166,12 +177,23 @@ class JWTService:
         )
         return access_token, new_raw_token
 
-    async def revoke_refresh_token(self, raw_token: str) -> None:
+    async def revoke_refresh_token(
+        self,
+        raw_token: str,
+        *,
+        expected_subject_type: SubjectType | None = None,
+    ) -> None:
         """Revoke a stored refresh token by its raw value."""
         stored = await self._repository.get_refresh_token_for_update(
             _hash_refresh_token(raw_token)
         )
         if stored is None:
+            await self._repository.rollback()
+            raise InvalidRefreshTokenError("Invalid refresh token")
+        if (
+            expected_subject_type is not None
+            and stored.subject_type != expected_subject_type
+        ):
             await self._repository.rollback()
             raise InvalidRefreshTokenError("Invalid refresh token")
         try:
