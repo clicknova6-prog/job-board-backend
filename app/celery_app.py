@@ -9,6 +9,7 @@ from celery import Celery
 from dotenv import load_dotenv
 
 import app.tasks
+from app.core.config import SitemapSettings
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", encoding="utf-8-sig")
 
@@ -40,6 +41,12 @@ celery_app.conf.beat_schedule = {
     "hard-delete-expired-jobs": {
         "task": "app.tasks.cleanup_tasks.hard_delete_expired_jobs",
         "schedule": timedelta(minutes=30),
+    },
+    "generate-sitemaps": {
+        "task": "app.tasks.sitemap_tasks.generate_sitemaps",
+        "schedule": timedelta(
+            minutes=SitemapSettings.from_environment().regen_interval_minutes
+        ),
     },
 }
 

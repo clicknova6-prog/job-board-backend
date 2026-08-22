@@ -690,3 +690,38 @@ class CleanupRepository:
     def rollback(self) -> None:
         """Roll back the current cleanup batch."""
         self._session.rollback()
+
+
+@dataclass(frozen=True, slots=True)
+class SitemapJob:
+    """The only canonical-job fields needed by sitemap generation."""
+
+    id: int
+    slug: str
+    last_imported_at: datetime
+
+
+class SitemapRepository:
+    """Read-only canonical-job access for sitemap generation."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_active_jobs_after(
+        self, *, after_id: int, limit: int
+    ) -> list[SitemapJob]:
+        """Return one ID-keyset page of active jobs in stable order."""
+        rows = self._session.execute(
+            select(Job.id, Job.slug, Job.last_imported_at)
+            .where(Job.is_active.is_(True), Job.id > after_id)
+            .order_by(Job.id)
+            .limit(limit)
+        )
+        return [
+            SitemapJob(
+                id=row.id,
+                slug=row.slug,
+                last_imported_at=row.last_imported_at,
+            )
+            for row in rows
+        ]
