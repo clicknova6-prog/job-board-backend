@@ -197,7 +197,9 @@ class AuthRepository:
                 owner_is_enabled=row.deleted_at is None,
             )
         if row.admin_user_id is None:
-            raise RuntimeError("Refresh token has no owner despite its database constraint")
+            raise RuntimeError(
+                "Refresh token has no owner despite its database constraint"
+            )
         return RefreshTokenRecord(
             id=row.id,
             subject_id=row.admin_user_id,

@@ -251,9 +251,7 @@ def test_google_callback_uses_mocked_http_and_sets_refresh_cookie() -> None:
                 },
             )
 
-        google_http = httpx.AsyncClient(
-            transport=httpx.MockTransport(google_handler)
-        )
+        google_http = httpx.AsyncClient(transport=httpx.MockTransport(google_handler))
         google_service = GoogleOAuthService(
             repository,  # type: ignore[arg-type]
             settings=_google_settings(),
@@ -299,7 +297,9 @@ def test_google_callback_handles_state_and_provider_errors(
     async def run() -> None:
         app.dependency_overrides[get_google_oauth_service] = _CollisionGoogleService
         app.dependency_overrides[get_jwt_service] = _RouteJWTService
-        async with _asgi_client(client_host=f"callback-error-{expected_detail}") as client:
+        async with _asgi_client(
+            client_host=f"callback-error-{expected_detail}"
+        ) as client:
             response = await client.get("/auth/google/callback", params=params)
         assert response.status_code == 400
         assert response.json() == {"detail": expected_detail}
@@ -322,9 +322,7 @@ def test_google_email_collision_returns_non_leaking_conflict() -> None:
                 params={"code": "code", "state": "valid-state"},
             )
         assert response.status_code == 409
-        assert response.json() == {
-            "detail": "An account already exists for this email"
-        }
+        assert response.json() == {"detail": "An account already exists for this email"}
         assert "internal" not in response.text
 
     asyncio.run(run())

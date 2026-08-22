@@ -24,7 +24,6 @@ from sqlalchemy.orm import Session
 from app.db.models import ImportRun, Job, JobStaging, Provider
 from app.imports.schemas import JobFeedRecord
 
-
 _SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
     {
         "account",
@@ -57,7 +56,7 @@ def _mask_sensitive_query_parameters(source_uri: str | None) -> str | None:
 
     masked_parts: list[str] = []
     for part in parsed.query.split("&"):
-        encoded_name, separator, value = part.partition("=")
+        encoded_name, separator, _value = part.partition("=")
         normalized_name = "".join(
             character
             for character in unquote_plus(encoded_name).casefold()
@@ -312,7 +311,7 @@ class JobRepository:
             # --- Provider/commercial job type ---
             job_type=record.job_type,
             # --- Validation state (set by service layer later if needed) ---
-            validation_errors=list(),
+            validation_errors=[],
             is_valid=True,
         )
         self._session.add(staged)

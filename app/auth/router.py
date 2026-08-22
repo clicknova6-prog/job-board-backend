@@ -99,9 +99,7 @@ async def google_callback(
     """Complete Google OAuth and return an access token."""
     stored_state = request.cookies.get(OAUTH_STATE_COOKIE)
     state_is_valid = bool(
-        state
-        and stored_state
-        and secrets.compare_digest(state, stored_state)
+        state and stored_state and secrets.compare_digest(state, stored_state)
     )
     if error is not None:
         response = _error_response(
@@ -119,9 +117,11 @@ async def google_callback(
         return response
 
     try:
-        email, oauth_subject_id, display_name = (
-            await google_service.exchange_code_for_profile(code)
-        )
+        (
+            email,
+            oauth_subject_id,
+            display_name,
+        ) = await google_service.exchange_code_for_profile(code)
         user = await google_service.get_or_create_user(
             email,
             oauth_subject_id,

@@ -55,8 +55,7 @@ class Provider(Base):
             name="providers_schedule_interval_positive_check",
         ),
         CheckConstraint(
-            "deleted_job_retention_hours IS NULL "
-            "OR deleted_job_retention_hours > 0",
+            "deleted_job_retention_hours IS NULL OR deleted_job_retention_hours > 0",
             name="providers_deleted_job_retention_positive_check",
         ),
         {"comment": "Configured upstream job feed sources."},
@@ -532,7 +531,9 @@ class RefreshToken(Base):
     issued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User | None] = relationship(

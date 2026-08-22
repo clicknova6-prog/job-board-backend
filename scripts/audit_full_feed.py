@@ -80,7 +80,7 @@ def main() -> None:
     total = 0
 
     with zipfile.ZipFile(zip_path) as zf:
-        member = [n for n in zf.namelist() if n.lower().endswith(".xml")][0]
+        member = next(n for n in zf.namelist() if n.lower().endswith(".xml"))
         print(f"feed   : {zip_path}")
         print(f"member : {member}")
         print("streaming... (progress every 50k records)\n", flush=True)

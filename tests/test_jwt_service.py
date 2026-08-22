@@ -84,9 +84,7 @@ class _FakeTokenRepository:
             owner_is_enabled=self.owner_is_enabled,
         )
 
-    async def revoke_refresh_token(
-        self, token_id: UUID, revoked_at: datetime
-    ) -> None:
+    async def revoke_refresh_token(self, token_id: UUID, revoked_at: datetime) -> None:
         token = next(item for item in self.tokens if item.id == token_id)
         token.revoked_at = revoked_at
 
