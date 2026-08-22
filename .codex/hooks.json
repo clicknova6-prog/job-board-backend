@@ -7,9 +7,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "repo=\"$(git rev-parse --show-toplevel)\"; \"$repo/.venv/Scripts/ruff.exe\" format \"$repo\"; \"$repo/.venv/Scripts/ruff.exe\" check --fix \"$repo\"; true",
-            "commandWindows": "$repo = git rev-parse --show-toplevel; $ruff = Join-Path $repo '.venv\\Scripts\\ruff.exe'; & $ruff format $repo; & $ruff check --fix $repo; exit 0",
-            "statusMessage": "Running ruff format + check --fix on the repo...",
+            "command": "repo=\"$(git rev-parse --show-toplevel)\"; \"$repo/.venv/Scripts/python.exe\" \"$repo/.hooks/ruff_post_tool_use.py\" || true",
+            "commandWindows": "$repo = git rev-parse --show-toplevel; & \"$repo/.venv/Scripts/python.exe\" \"$repo/.hooks/ruff_post_tool_use.py\"; exit 0",
+            "statusMessage": "Running ruff on the edited file...",
             "timeout": 60
           }
         ]

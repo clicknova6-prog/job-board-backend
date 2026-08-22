@@ -1,4 +1,4 @@
-{
+﻿{
   "hooks": {
     "PostToolUse": [
       {
@@ -7,8 +7,8 @@
           {
             "type": "command",
             "shell": "bash",
-            "command": "( \"$CLAUDE_PROJECT_DIR/.venv/Scripts/ruff.exe\" format \"$CLAUDE_PROJECT_DIR\" ; \"$CLAUDE_PROJECT_DIR/.venv/Scripts/ruff.exe\" check --fix \"$CLAUDE_PROJECT_DIR\" ) 2>&1 ; true",
-            "statusMessage": "Running ruff format + check --fix on the repo...",
+            "command": "\"$CLAUDE_PROJECT_DIR/.venv/Scripts/python.exe\" \"$CLAUDE_PROJECT_DIR/.hooks/ruff_post_tool_use.py\" || true",
+            "statusMessage": "Running ruff on the edited file...",
             "timeout": 60
           }
         ]
