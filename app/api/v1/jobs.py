@@ -14,7 +14,12 @@ from app.db.public_job_repositories import (
     JobSearchFilters,
     PublicJobRepository,
 )
-from app.schemas.job_public import JobDetail, JobListResponse, JobSummary
+from app.schemas.job_public import (
+    JobDetail,
+    JobFilterMetadataOut,
+    JobListResponse,
+    JobSummary,
+)
 
 router = APIRouter()
 
@@ -88,6 +93,19 @@ async def search_jobs(
         next_cursor=next_cursor,
         has_more=has_more,
     )
+
+
+@router.get(
+    "/jobs/filters",
+    response_model=JobFilterMetadataOut,
+    summary="List available job filters",
+)
+async def get_job_filters(
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> JobFilterMetadataOut:
+    """Return filter values that occur on at least one active job."""
+    metadata = await PublicJobRepository(session).get_filter_metadata()
+    return JobFilterMetadataOut.model_validate(metadata)
 
 
 @router.get("/jobs/{slug}", response_model=JobDetail, summary="Get a job by slug")

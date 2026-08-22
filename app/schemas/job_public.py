@@ -45,6 +45,25 @@ class JobDetail(JobSummary):
     is_expired: bool
 
 
+class FilterOptionOut(BaseModel):
+    """One populated value in a public job filter."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    value: str
+    count: int
+
+
+class JobFilterMetadataOut(BaseModel):
+    """Available values and active-job counts for each public filter."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    classifications: list[FilterOptionOut]
+    employment_types: list[FilterOptionOut]
+    country_names: list[FilterOptionOut]
+
+
 class JobListResponse(BaseModel):
     """A single keyset-paginated page of job summaries."""
 

@@ -13,6 +13,7 @@ from decimal import Decimal
 
 from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 
 from app.db.models import Job
 
@@ -60,6 +61,23 @@ class JobDetailRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class FilterOption:
+    """One value currently available for a public job filter."""
+
+    value: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class JobFilterMetadata:
+    """Active-job counts for the public catalogue filters."""
+
+    classifications: list[FilterOption]
+    employment_types: list[FilterOption]
+    country_names: list[FilterOption]
+
+
+@dataclass(frozen=True, slots=True)
 class JobSearchFilters:
     """Equality and full-text predicates for a public job search."""
 
@@ -83,6 +101,27 @@ class PublicJobRepository:
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_filter_metadata(self) -> JobFilterMetadata:
+        """Return populated filter values and active-job counts."""
+        return JobFilterMetadata(
+            classifications=await self._get_filter_options(Job.classification),
+            employment_types=await self._get_filter_options(Job.employment_type),
+            country_names=await self._get_filter_options(Job.country_name),
+        )
+
+    async def _get_filter_options(
+        self, column: InstrumentedAttribute[str | None]
+    ) -> list[FilterOption]:
+        count = func.count()
+        statement = (
+            select(column.label("value"), count.label("count"))
+            .where(Job.is_active.is_(True), column.is_not(None))
+            .group_by(column)
+            .order_by(count.desc(), column.asc())
+        )
+        result = await self._session.execute(statement)
+        return [FilterOption(**row) for row in result.mappings()]
 
     async def get_by_slug(self, slug: str) -> JobDetailRecord | None:
         """Return one job by public slug, including soft-deleted jobs."""
