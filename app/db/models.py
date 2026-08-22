@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum as PyEnum
 from typing import Any
+from uuid import UUID as UUIDValue
 
 from sqlalchemy import (
     BigInteger,
@@ -22,17 +24,43 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+
+class OAuthProvider(str, PyEnum):
+    """Supported OAuth identity providers for job seekers."""
+
+    GOOGLE = "google"
+    APPLE = "apple"
+
+
+class AdminRole(str, PyEnum):
+    """Administrative authorization roles."""
+
+    ADMIN = "admin"
+    SUPER_ADMIN = "super_admin"
 
 
 class Provider(Base):
     """A configured upstream job feed source (e.g. Jobg8)."""
 
     __tablename__ = "providers"
-    __table_args__ = ({"comment": "Configured upstream job feed sources."},)
+    __table_args__ = (
+        CheckConstraint(
+            "schedule_interval_minutes IS NULL OR schedule_interval_minutes > 0",
+            name="providers_schedule_interval_positive_check",
+        ),
+        CheckConstraint(
+            "deleted_job_retention_hours IS NULL "
+            "OR deleted_job_retention_hours > 0",
+            name="providers_deleted_job_retention_positive_check",
+        ),
+        {"comment": "Configured upstream job feed sources."},
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -45,6 +73,10 @@ class Provider(Base):
     )
     archive_type: Mapped[str | None] = mapped_column(Text)
     schedule_cron: Mapped[str | None] = mapped_column(Text)
+    schedule_interval_minutes: Mapped[int | None] = mapped_column(Integer)
+    deleted_job_retention_hours: Mapped[int | None] = mapped_column(
+        Integer, server_default=text("12")
+    )
     timeout_seconds: Mapped[int | None] = mapped_column(Integer)
     retry_max_attempts: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("3")
@@ -371,3 +403,143 @@ class Job(Base):
         foreign_keys=[last_seen_import_run_id],
     )
     provider: Mapped[Provider] = relationship(foreign_keys=[provider_id])
+
+
+class User(Base):
+    """A job seeker authenticated through an OAuth provider."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint(
+            "oauth_provider",
+            "oauth_subject_id",
+            name="users_oauth_identity_unique",
+        ),
+        Index("users_email_unique_idx", "email", unique=True),
+        {"comment": "OAuth-authenticated job-seeker accounts."},
+    )
+
+    id: Mapped[UUIDValue] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    oauth_provider: Mapped[OAuthProvider] = mapped_column(
+        SQLEnum(
+            OAuthProvider,
+            name="oauth_provider_enum",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    oauth_subject_id: Mapped[str] = mapped_column(Text, nullable=False)
+    display_name: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    refresh_tokens: Mapped[list[RefreshToken]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        foreign_keys="RefreshToken.user_id",
+    )
+
+
+class AdminUser(Base):
+    """A separately authenticated administrative account."""
+
+    __tablename__ = "admin_users"
+    __table_args__ = (
+        UniqueConstraint("email", name="admin_users_email_unique"),
+        {"comment": "Password-authenticated administrative accounts."},
+    )
+
+    id: Mapped[UUIDValue] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    password_hash: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Argon2 password hash; plaintext passwords are never stored.",
+    )
+    role: Mapped[AdminRole] = mapped_column(
+        SQLEnum(
+            AdminRole,
+            name="admin_role_enum",
+            values_callable=lambda enum_type: [member.value for member in enum_type],
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    refresh_tokens: Mapped[list[RefreshToken]] = relationship(
+        back_populates="admin_user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        foreign_keys="RefreshToken.admin_user_id",
+    )
+
+
+class RefreshToken(Base):
+    """A hashed refresh token belonging to exactly one account type."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            "(user_id IS NOT NULL AND admin_user_id IS NULL) "
+            "OR (user_id IS NULL AND admin_user_id IS NOT NULL)",
+            name="refresh_tokens_exactly_one_owner_check",
+        ),
+        Index("refresh_tokens_token_hash_idx", "token_hash"),
+        Index("refresh_tokens_expires_at_idx", "expires_at"),
+        Index("refresh_tokens_user_id_idx", "user_id"),
+        Index("refresh_tokens_admin_user_id_idx", "admin_user_id"),
+        {"comment": "Hashed refresh-token state; raw tokens are never stored."},
+    )
+
+    id: Mapped[UUIDValue] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    token_hash: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="One-way hash of the refresh token; never the raw token.",
+    )
+    user_id: Mapped[UUIDValue | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+    )
+    admin_user_id: Mapped[UUIDValue | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("admin_users.id", ondelete="CASCADE"),
+    )
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User | None] = relationship(
+        back_populates="refresh_tokens",
+        foreign_keys=[user_id],
+    )
+    admin_user: Mapped[AdminUser | None] = relationship(
+        back_populates="refresh_tokens",
+        foreign_keys=[admin_user_id],
+    )
