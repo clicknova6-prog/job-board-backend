@@ -14,7 +14,7 @@ from app.db.public_job_repositories import (
     JobSearchFilters,
     PublicJobRepository,
 )
-from app.schemas.job_public import JobListResponse, JobSummary
+from app.schemas.job_public import JobDetail, JobListResponse, JobSummary
 
 router = APIRouter()
 
@@ -87,4 +87,38 @@ async def search_jobs(
         items=[JobSummary.model_validate(record) for record in page],
         next_cursor=next_cursor,
         has_more=has_more,
+    )
+
+
+@router.get("/jobs/{slug}", response_model=JobDetail, summary="Get a job by slug")
+async def get_job_detail(
+    slug: str,
+    session: Annotated[AsyncSession, Depends(get_async_session)],
+) -> JobDetail:
+    """Return an active or soft-deleted job by its public slug."""
+    record = await PublicJobRepository(session).get_by_slug(slug)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    return JobDetail(
+        id=record.id,
+        slug=record.slug,
+        title=record.title,
+        classification=record.classification,
+        employment_type=record.employment_type,
+        country_name=record.country_name,
+        location=record.location,
+        apply_url=record.apply_url,
+        last_imported_at=record.last_imported_at,
+        description=record.description,
+        advertiser_name=record.advertiser_name,
+        salary_min=record.salary_min,
+        salary_max=record.salary_max,
+        salary_currency=record.salary_currency,
+        salary_period=record.salary_period,
+        created_at=record.created_at,
+        is_expired=not record.is_active,
     )

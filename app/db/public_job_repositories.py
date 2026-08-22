@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 
 from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +37,29 @@ class JobSummaryRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class JobDetailRecord:
+    """Exactly the fields needed to render one public job detail response."""
+
+    id: int
+    slug: str
+    title: str
+    classification: str | None
+    employment_type: str | None
+    country_name: str | None
+    location: str | None
+    apply_url: str
+    last_imported_at: datetime
+    description: str
+    advertiser_name: str | None
+    salary_min: Decimal | None
+    salary_max: Decimal | None
+    salary_currency: str | None
+    salary_period: str | None
+    created_at: datetime
+    is_active: bool
+
+
+@dataclass(frozen=True, slots=True)
 class JobSearchFilters:
     """Equality and full-text predicates for a public job search."""
 
@@ -55,10 +79,36 @@ class JobKeysetCursor:
 
 
 class PublicJobRepository:
-    """Reads active jobs for anonymous catalogue browsing."""
+    """Reads publishable jobs for anonymous catalogue browsing."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
+
+    async def get_by_slug(self, slug: str) -> JobDetailRecord | None:
+        """Return one job by public slug, including soft-deleted jobs."""
+        statement = select(
+            Job.id,
+            Job.slug,
+            Job.title,
+            Job.classification,
+            Job.employment_type,
+            Job.country_name,
+            Job.location,
+            Job.apply_url,
+            Job.last_imported_at,
+            Job.description,
+            Job.advertiser_name,
+            Job.salary_min,
+            Job.salary_max,
+            Job.salary_currency,
+            Job.salary_period,
+            Job.created_at,
+            Job.is_active,
+        ).where(Job.slug == slug)
+
+        result = await self._session.execute(statement)
+        row = result.mappings().one_or_none()
+        return None if row is None else JobDetailRecord(**row)
 
     async def search(
         self,

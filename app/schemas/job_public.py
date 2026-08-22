@@ -9,6 +9,7 @@ expose only publishable columns. Internal columns -- ``source_payload``,
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -29,6 +30,19 @@ class JobSummary(BaseModel):
     location: str | None
     apply_url: str
     last_imported_at: datetime
+
+
+class JobDetail(JobSummary):
+    """The publishable detail view for one active or recently expired job."""
+
+    description: str
+    advertiser_name: str | None
+    salary_min: Decimal | None
+    salary_max: Decimal | None
+    salary_currency: str | None
+    salary_period: str | None
+    created_at: datetime
+    is_expired: bool
 
 
 class JobListResponse(BaseModel):
