@@ -24,7 +24,7 @@ This is a job board backend built around multi-provider job feed ingestion — c
 - Anomaly thresholds (feed drop %, rejection rate %) are configurable per-provider via Provider.config JSONB, not hardcoded
 - Deleted/removed jobs are soft-deleted (is_active=False, deactivated_at set) with a retention window before hard delete — retention period is ALSO configurable per-provider via Provider.config JSONB (not hardcoded 12 hours)
 - Public list endpoints paginate by KEYSET, never OFFSET. The `id` tiebreaker must follow the primary sort direction so the cursor predicate stays a row comparison (`(last_imported_at, id) < (:v, :id)` for DESC, `>` for ASC), and `jobs_active_last_imported_at_id_idx` must keep BOTH key columns DESC so one index serves both directions. Forcing `id ASC` under a DESC primary sort demotes the predicate to a Filter and makes deep pages O(n^2) — a feed import stamps every row with the same `last_imported_at`, so ties are the norm, not the exception
-- PROVIDER NOTE (Jobg8): the feed's <URL> tag serves as BOTH apply_url and affiliate_url for this provider. Other providers may supply these separately — the schema's 3-field separation (source_job_url, apply_url, affiliate_url) must be preserved for that reason
+- The public job destination uses a single `apply_url` field per job; Jobg8 maps its `<URL>` tag to `apply_url`
 
 ## Current Status
 
@@ -55,7 +55,6 @@ This is a job board backend built around multi-provider job feed ingestion — c
 - Affiliate redirect handling
 - SEO / sitemap generation
 - Hard-delete cleanup worker (soft-delete + retention window exist in principle; nothing purges rows past the retention period)
-- `source_job_url` / `affiliate_url` population — both columns exist on `Job`, but `JobFeedRecord` and `JobStaging` don't map them yet, so they're always `None` today
 - Automated test suite (no pytest present; `tests/fixtures` exists but verification is currently manual via `scripts/test_import_cycle.py`)
 
 ## Windows Development Environment

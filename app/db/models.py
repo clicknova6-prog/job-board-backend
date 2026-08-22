@@ -366,12 +366,6 @@ class Job(Base):
     area: Mapped[str | None] = mapped_column(Text)
     postal_code: Mapped[str | None] = mapped_column(Text)
     apply_url: Mapped[str] = mapped_column(Text, nullable=False)
-    source_job_url: Mapped[str | None] = mapped_column(
-        Text, comment="Provider's original job page URL, separate from apply_url."
-    )
-    affiliate_url: Mapped[str | None] = mapped_column(
-        Text, comment="Provider's affiliate destination URL, if supplied."
-    )
     language_code: Mapped[str | None] = mapped_column(Text)
     employment_type: Mapped[str | None] = mapped_column(Text)
     start_date_text: Mapped[str | None] = mapped_column(Text)
