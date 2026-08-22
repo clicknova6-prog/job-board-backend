@@ -41,6 +41,7 @@ EXPECTED_KEYS = {
     "salary_period",
     "created_at",
     "is_expired",
+    "structured_data",
 }
 
 
@@ -60,6 +61,8 @@ def _job_values(*, index: int, is_active: bool = True) -> dict[str, Any]:
         "employment_type": "Full Time",
         "country_name": "Australia",
         "location": "Sydney",
+        "area": "New South Wales",
+        "postal_code": "2000",
         "apply_url": f"https://example.test/apply/detail/{index}",
         "salary_min": Decimal("123456789012.34"),
         "salary_max": Decimal("123456789012.35"),
@@ -140,6 +143,45 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
             assert body["description"] == row["description"]
             assert body["advertiser_name"] == row["advertiser_name"]
             assert body["apply_url"] == row["apply_url"]
+            structured_data = body["structured_data"]
+            assert structured_data["@context"] == "https://schema.org/"
+            assert structured_data["@type"] == "JobPosting"
+            assert structured_data["title"] == row["title"]
+            assert structured_data["description"] == row["description"]
+            assert structured_data["identifier"] == {
+                "@type": "PropertyValue",
+                "name": "job-board",
+                "value": str(body["id"]),
+            }
+            assert structured_data["datePosted"] == "2026-07-31T12:00:00+00:00"
+            assert structured_data["employmentType"] == "FULL_TIME"
+            assert structured_data["hiringOrganization"] == {
+                "@type": "Organization",
+                "name": "Exact Systems",
+            }
+            assert structured_data["jobLocation"] == {
+                "@type": "Place",
+                "address": {
+                    "@type": "PostalAddress",
+                    "addressLocality": "Sydney",
+                    "addressRegion": "New South Wales",
+                    "postalCode": "2000",
+                    "addressCountry": "Australia",
+                },
+            }
+            assert structured_data["baseSalary"] == {
+                "@type": "MonetaryAmount",
+                "currency": "AUD",
+                "value": {
+                    "@type": "QuantitativeValue",
+                    "minValue": "123456789012.34",
+                    "maxValue": "123456789012.35",
+                    "unitText": "YEAR",
+                },
+            }
+            assert structured_data["directApply"] is True
+            assert structured_data["url"] == row["apply_url"]
+            assert "validThrough" not in structured_data
 
     _run(run)
 
@@ -160,6 +202,7 @@ def test_soft_deleted_job_returns_full_expired_detail(
             assert body["title"] == row["title"]
             assert body["description"] == row["description"]
             assert body["apply_url"] == row["apply_url"]
+            assert body["structured_data"] is None
 
     _run(run)
 
@@ -212,5 +255,39 @@ def test_salary_decimals_round_trip_without_precision_drift(
             # exact value instead of passing through binary floating point.
             assert body["salary_min"] == "123456789012.34"
             assert body["salary_max"] == "123456789012.35"
+
+    _run(run)
+
+
+def test_structured_data_omits_missing_salary(test_database_url: str) -> None:
+    row = _job_values(index=6)
+    row.update(salary_min=None, salary_max=None)
+
+    async def run() -> None:
+        async with _api(test_database_url, [row]) as client:
+            response = await client.get("/api/v1/jobs/detail-test-job-6")
+
+            assert response.status_code == 200
+            assert "baseSalary" not in response.json()["structured_data"]
+
+    _run(run)
+
+
+def test_structured_data_omits_missing_location_subfields(
+    test_database_url: str,
+) -> None:
+    row = _job_values(index=7)
+    row.update(location=None, area="", postal_code=None)
+
+    async def run() -> None:
+        async with _api(test_database_url, [row]) as client:
+            response = await client.get("/api/v1/jobs/detail-test-job-7")
+
+            assert response.status_code == 200
+            address = response.json()["structured_data"]["jobLocation"]["address"]
+            assert address == {
+                "@type": "PostalAddress",
+                "addressCountry": "Australia",
+            }
 
     _run(run)

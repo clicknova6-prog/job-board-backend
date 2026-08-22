@@ -48,6 +48,8 @@ class JobDetailRecord:
     employment_type: str | None
     country_name: str | None
     location: str | None
+    area: str | None
+    postal_code: str | None
     apply_url: str
     last_imported_at: datetime
     description: str
@@ -56,6 +58,7 @@ class JobDetailRecord:
     salary_max: Decimal | None
     salary_currency: str | None
     salary_period: str | None
+    first_imported_at: datetime
     created_at: datetime
     is_active: bool
 
@@ -133,6 +136,8 @@ class PublicJobRepository:
             Job.employment_type,
             Job.country_name,
             Job.location,
+            Job.area,
+            Job.postal_code,
             Job.apply_url,
             Job.last_imported_at,
             Job.description,
@@ -141,6 +146,7 @@ class PublicJobRepository:
             Job.salary_max,
             Job.salary_currency,
             Job.salary_period,
+            Job.first_imported_at,
             Job.created_at,
             Job.is_active,
         ).where(Job.slug == slug)

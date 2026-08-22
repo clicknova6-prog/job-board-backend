@@ -20,6 +20,7 @@ from app.schemas.job_public import (
     JobListResponse,
     JobSummary,
 )
+from app.services.structured_data_service import build_job_posting_ld
 
 router = APIRouter()
 
@@ -139,4 +140,5 @@ async def get_job_detail(
         salary_period=record.salary_period,
         created_at=record.created_at,
         is_expired=not record.is_active,
+        structured_data=build_job_posting_ld(record),
     )

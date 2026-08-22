@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -43,6 +44,7 @@ class JobDetail(JobSummary):
     salary_period: str | None
     created_at: datetime
     is_expired: bool
+    structured_data: dict[str, Any] | None
 
 
 class FilterOptionOut(BaseModel):
