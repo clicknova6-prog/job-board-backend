@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator, Callable, Coroutine
 from typing import Any, cast
+from uuid import uuid4
 
 import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.dependencies import get_jwt_service
+from app.core.auth_config import JWTSettings
 from app.db.affiliate_repositories import AffiliateRepository
 from app.db.async_session import get_async_session
+from app.db.models import AdminRole
 from app.main import app
 from app.services.affiliate_service import AffiliateService
+from app.services.auth.jwt_service import JWTService
 
 
 async def _override_session() -> AsyncIterator[AsyncSession]:
@@ -25,26 +29,56 @@ def _run(coroutine_factory: Callable[[], Coroutine[Any, Any, None]]) -> None:
     asyncio.run(coroutine_factory())
 
 
-def _admin_headers() -> dict[str, str]:
-    return {"X-Admin-API-Key": os.environ["ADMIN_API_KEY"]}
+def _jwt_service() -> JWTService:
+    return JWTService(
+        object(),  # type: ignore[arg-type]
+        settings=JWTSettings(
+            secret="affiliate-route-test-secret-at-least-32-bytes",
+            algorithm="HS256",
+        ),
+    )
 
 
-def test_admin_affiliate_routes_require_api_key() -> None:
+def _admin_headers(jwt_service: JWTService) -> dict[str, str]:
+    token = jwt_service.issue_access_token(
+        uuid4(),
+        "admin",
+        role=AdminRole.ADMIN,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_admin_affiliate_routes_require_admin_token() -> None:
     async def run() -> None:
+        jwt_service = _jwt_service()
         app.dependency_overrides[get_async_session] = _override_session
+        app.dependency_overrides[get_jwt_service] = lambda: jwt_service
         try:
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://testserver"
             ) as client:
-                response = await client.post(
+                unauthenticated = await client.post(
                     "/admin/api/affiliate/lookup",
                     json={"provider_id": 1, "source_job_ids": []},
                 )
-                assert response.status_code == 401
-                assert response.json() == {"detail": "Invalid or missing admin API key"}
+                user_token = jwt_service.issue_access_token(uuid4(), "user")
+                unauthorized = await client.post(
+                    "/admin/api/affiliate/lookup",
+                    headers={"Authorization": f"Bearer {user_token}"},
+                    json={"provider_id": 1, "source_job_ids": []},
+                )
+                assert unauthenticated.status_code == 401
+                assert unauthenticated.json() == {
+                    "detail": "Invalid or missing access token"
+                }
+                assert unauthorized.status_code == 401
+                assert unauthorized.json() == {
+                    "detail": "Invalid or missing access token"
+                }
         finally:
             app.dependency_overrides.pop(get_async_session, None)
+            app.dependency_overrides.pop(get_jwt_service, None)
 
     _run(run)
 
@@ -79,7 +113,9 @@ def test_lookup_translates_service_results(
     monkeypatch.setattr(AffiliateService, "lookup_jobs", fake_lookup)
 
     async def run() -> None:
+        jwt_service = _jwt_service()
         app.dependency_overrides[get_async_session] = _override_session
+        app.dependency_overrides[get_jwt_service] = lambda: jwt_service
         try:
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -87,7 +123,7 @@ def test_lookup_translates_service_results(
             ) as client:
                 response = await client.post(
                     "/admin/api/affiliate/lookup",
-                    headers=_admin_headers(),
+                    headers=_admin_headers(jwt_service),
                     json={
                         "provider_id": 7,
                         "source_job_ids": ["found", "missing"],
@@ -111,6 +147,7 @@ def test_lookup_translates_service_results(
                 }
         finally:
             app.dependency_overrides.pop(get_async_session, None)
+            app.dependency_overrides.pop(get_jwt_service, None)
 
     _run(run)
 
@@ -146,7 +183,9 @@ def test_generate_revalidates_and_excludes_invalid_jobs(
     monkeypatch.setattr(AffiliateService, "generate_links", fake_generate)
 
     async def run() -> None:
+        jwt_service = _jwt_service()
         app.dependency_overrides[get_async_session] = _override_session
+        app.dependency_overrides[get_jwt_service] = lambda: jwt_service
         try:
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
@@ -154,7 +193,7 @@ def test_generate_revalidates_and_excludes_invalid_jobs(
             ) as client:
                 response = await client.post(
                     "/admin/api/affiliate/generate",
-                    headers=_admin_headers(),
+                    headers=_admin_headers(jwt_service),
                     json={"provider_id": 7, "job_ids": [1, 2, 3]},
                 )
                 assert response.status_code == 200
@@ -173,6 +212,7 @@ def test_generate_revalidates_and_excludes_invalid_jobs(
                 }
         finally:
             app.dependency_overrides.pop(get_async_session, None)
+            app.dependency_overrides.pop(get_jwt_service, None)
 
     _run(run)
 

@@ -552,6 +552,37 @@ class AdminUser(Base):
     )
 
 
+class AdminAuditLog(Base):
+    """An immutable record of an administrator action."""
+
+    __tablename__ = "admin_audit_logs"
+    __table_args__ = (
+        Index("admin_audit_logs_admin_user_id_idx", "admin_user_id"),
+        Index(
+            "admin_audit_logs_target_type_target_id_idx",
+            "target_type",
+            "target_id",
+        ),
+        Index("admin_audit_logs_created_at_idx", "created_at"),
+        {"comment": "Administrator actions and their full before/after state."},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    admin_user_id: Mapped[UUIDValue | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+    )
+    action: Mapped[str] = mapped_column(Text, nullable=False)
+    target_type: Mapped[str] = mapped_column(Text, nullable=False)
+    target_id: Mapped[str] = mapped_column(Text, nullable=False)
+    before_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    ip_address: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class RefreshToken(Base):
     """A hashed refresh token belonging to exactly one account type."""
 
