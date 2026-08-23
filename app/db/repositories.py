@@ -475,6 +475,7 @@ class PromotionRepository:
             is_active=True,
             first_imported_at=now,
             last_imported_at=now,
+            content_updated_at=now,
             **_staged_field_values(staged),
         )
         self._session.add(job)
@@ -491,6 +492,7 @@ class PromotionRepository:
         for column, value in _staged_field_values(staged).items():
             setattr(job, column, value)
         job.last_imported_at = now
+        job.content_updated_at = now
         job.last_seen_import_run_id = run_id
 
     def mark_job_seen(self, job: Job, run_id: int, now: datetime) -> None:
