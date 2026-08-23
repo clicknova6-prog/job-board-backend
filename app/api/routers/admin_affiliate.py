@@ -1,4 +1,4 @@
-"""Temporary API-key-protected affiliate-link administration routes."""
+"""JWT-protected affiliate-link administration routes."""
 
 from __future__ import annotations
 
@@ -8,9 +8,10 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.admin_deps import require_admin_api_key
+from app.auth.dependencies import require_admin_role
 from app.db.affiliate_repositories import AffiliateRepository
 from app.db.async_session import get_async_session
+from app.db.models import AdminRole
 from app.schemas.affiliate import (
     AffiliateExcludedJob,
     AffiliateGeneratedLink,
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/admin/api/affiliate",
     tags=["Admin Affiliate"],
-    dependencies=[Depends(require_admin_api_key)],
+    dependencies=[Depends(require_admin_role(AdminRole.ADMIN, AdminRole.SUPER_ADMIN))],
 )
 
 
