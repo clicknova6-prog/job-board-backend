@@ -3,6 +3,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.api.routers.admin_affiliate import router as admin_affiliate_router
+from app.api.routers.admin_imports import router as admin_imports_router
 from app.api.routers.admin_providers import router as admin_providers_router
 from app.api.routers.redirect import router as affiliate_redirect_router
 from app.api.routers.sitemaps import router as sitemap_router
@@ -18,6 +19,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(auth_router)
 app.include_router(admin_auth_router)
 app.include_router(admin_affiliate_router)
+app.include_router(admin_imports_router)
 app.include_router(admin_providers_router)
 app.include_router(affiliate_redirect_router)
 app.include_router(sitemap_router)
