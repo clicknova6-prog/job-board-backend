@@ -1,9 +1,8 @@
 """Opaque base64 keyset cursors for the public listing endpoints.
 
-The payload is deliberately minimal -- the sort position and nothing else --
-so a cursor cannot be used to smuggle filter or authorization state. It is
-encoded, not signed: callers can decode it, and that is acceptable because it
-only ever names a page boundary of already-public data.
+The payload contains the sort position and the number of results already
+served. It is encoded, not signed: callers can decode it, and that is
+acceptable because it only contains pagination state for already-public data.
 """
 
 from __future__ import annotations
@@ -23,7 +22,11 @@ class InvalidCursorError(ValueError):
 def encode_cursor(cursor: JobKeysetCursor) -> str:
     """Serialize a keyset position into a URL-safe base64 token."""
     payload = json.dumps(
-        {"v": cursor.last_imported_at.isoformat(), "id": cursor.id},
+        {
+            "v": cursor.last_imported_at.isoformat(),
+            "id": cursor.id,
+            "served": cursor.served_count,
+        },
         separators=(",", ":"),
     )
     return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
@@ -44,15 +47,26 @@ def decode_cursor(token: str) -> JobKeysetCursor:
 
     raw_timestamp = payload.get("v")
     raw_id = payload.get("id")
+    raw_served_count = payload.get("served")
     if not isinstance(raw_timestamp, str):
         raise InvalidCursorError("cursor field 'v' must be an ISO-8601 string")
     # bool is a subclass of int, so it is rejected explicitly.
     if not isinstance(raw_id, int) or isinstance(raw_id, bool):
         raise InvalidCursorError("cursor field 'id' must be an integer")
+    if (
+        not isinstance(raw_served_count, int)
+        or isinstance(raw_served_count, bool)
+        or raw_served_count < 0
+    ):
+        raise InvalidCursorError("cursor field 'served' must be a non-negative integer")
 
     try:
         last_imported_at = datetime.fromisoformat(raw_timestamp)
     except ValueError as exc:
         raise InvalidCursorError("cursor field 'v' is not a valid timestamp") from exc
 
-    return JobKeysetCursor(last_imported_at=last_imported_at, id=raw_id)
+    return JobKeysetCursor(
+        last_imported_at=last_imported_at,
+        id=raw_id,
+        served_count=raw_served_count,
+    )

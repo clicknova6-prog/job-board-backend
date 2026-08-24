@@ -26,6 +26,7 @@ router = APIRouter()
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 20
+MAX_TRAVERSABLE_RESULTS = 10_000
 
 # "-last_imported_at" selects ascending order, per the endpoint contract. Note
 # this is the inverse of the more common "-" == descending convention.
@@ -64,29 +65,39 @@ async def search_jobs(
                 detail=f"Invalid cursor: {exc}",
             ) from exc
 
-    repository = PublicJobRepository(session)
-    # One extra row answers "is there another page?" without a COUNT.
-    records = await repository.search(
-        filters=JobSearchFilters(
-            classification=classification,
-            employment_type=employment_type,
-            country_name=country_name,
-            location=location,
-            q=q,
-        ),
-        descending=sort == "last_imported_at",
-        limit=limit + 1,
-        cursor=keyset_cursor,
-    )
+    served_count = keyset_cursor.served_count if keyset_cursor is not None else 0
+    page_limit = min(limit, max(MAX_TRAVERSABLE_RESULTS - served_count, 0))
 
-    has_more = len(records) > limit
-    page = records[:limit]
+    records = []
+    if page_limit:
+        repository = PublicJobRepository(session)
+        # One extra row answers "is there another page?" without a COUNT.
+        records = await repository.search(
+            filters=JobSearchFilters(
+                classification=classification,
+                employment_type=employment_type,
+                country_name=country_name,
+                location=location,
+                q=q,
+            ),
+            descending=sort == "last_imported_at",
+            limit=page_limit + 1,
+            cursor=keyset_cursor,
+        )
+
+    page = records[:page_limit]
+    served_count += len(page)
+    has_more = len(records) > page_limit and served_count < MAX_TRAVERSABLE_RESULTS
 
     next_cursor = None
     if has_more:
         last = page[-1]
         next_cursor = encode_cursor(
-            JobKeysetCursor(last_imported_at=last.last_imported_at, id=last.id)
+            JobKeysetCursor(
+                last_imported_at=last.last_imported_at,
+                id=last.id,
+                served_count=served_count,
+            )
         )
 
     return JobListResponse(

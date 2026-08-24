@@ -102,10 +102,11 @@ class JobSearchFilters:
 
 @dataclass(frozen=True, slots=True)
 class JobKeysetCursor:
-    """The ``(last_imported_at, id)`` position a page resumes after."""
+    """The keyset position and number of results already served."""
 
     last_imported_at: datetime
     id: int
+    served_count: int
 
 
 class PublicJobRepository:

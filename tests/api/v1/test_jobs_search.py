@@ -7,6 +7,7 @@ import base64
 import json
 from collections.abc import AsyncIterator, Callable, Coroutine, Sequence
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+from app.api.v1.cursors import decode_cursor, encode_cursor
 from app.db.async_session import get_async_session
 from app.db.models import Job, Provider
 from app.main import app
@@ -127,6 +129,10 @@ def _run(coroutine_factory: Callable[[], Coroutine[Any, Any, None]]) -> None:
     asyncio.run(coroutine_factory())
 
 
+def _encode_cursor_payload(payload: object) -> str:
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
 def test_inactive_jobs_are_never_returned(test_database_url: str) -> None:
     rows = [
         _job_values(
@@ -191,6 +197,64 @@ def test_keyset_pagination_covers_every_row_without_duplicates(
             # with the row index, so the ids must come back in reverse order.
             assert seen == sorted(seen, reverse=True)
             assert seen_timestamps == sorted(seen_timestamps, reverse=True)
+
+    _run(run)
+
+
+def test_page_is_truncated_before_crossing_result_cap(
+    test_database_url: str,
+) -> None:
+    rows = [
+        _job_values(index=index, last_imported_at=BASE_TIME + timedelta(minutes=index))
+        for index in range(102)
+    ]
+
+    async def run() -> None:
+        async with _api(test_database_url, rows) as client:
+            first = await client.get("/api/v1/jobs", params={"limit": 1})
+            assert first.status_code == 200
+            issued_cursor = decode_cursor(first.json()["next_cursor"])
+            near_cap_cursor = encode_cursor(replace(issued_cursor, served_count=9_950))
+
+            response = await client.get(
+                "/api/v1/jobs",
+                params={"limit": 100, "cursor": near_cap_cursor},
+            )
+
+            assert response.status_code == 200
+            body = response.json()
+            assert len(body["items"]) == 50
+            assert body["has_more"] is False
+            assert body["next_cursor"] is None
+
+    _run(run)
+
+
+def test_cursor_at_9999_served_returns_at_most_one_item(
+    test_database_url: str,
+) -> None:
+    rows = [
+        _job_values(index=index, last_imported_at=BASE_TIME + timedelta(minutes=index))
+        for index in range(4)
+    ]
+
+    async def run() -> None:
+        async with _api(test_database_url, rows) as client:
+            first = await client.get("/api/v1/jobs", params={"limit": 1})
+            assert first.status_code == 200
+            issued_cursor = decode_cursor(first.json()["next_cursor"])
+            near_cap_cursor = encode_cursor(replace(issued_cursor, served_count=9_999))
+
+            response = await client.get(
+                "/api/v1/jobs",
+                params={"limit": 100, "cursor": near_cap_cursor},
+            )
+
+            assert response.status_code == 200
+            body = response.json()
+            assert len(body["items"]) == 1
+            assert body["has_more"] is False
+            assert body["next_cursor"] is None
 
     _run(run)
 
@@ -371,13 +435,9 @@ def test_full_text_search_matches_stemmed_terms(test_database_url: str) -> None:
         "not-base64-!!!",
         base64.urlsafe_b64encode(b"not json at all").decode(),
         base64.urlsafe_b64encode(json.dumps([1, 2]).encode()).decode(),
-        base64.urlsafe_b64encode(json.dumps({"id": 5}).encode()).decode(),
-        base64.urlsafe_b64encode(
-            json.dumps({"v": "yesterday", "id": 5}).encode()
-        ).decode(),
-        base64.urlsafe_b64encode(
-            json.dumps({"v": BASE_TIME.isoformat(), "id": "five"}).encode()
-        ).decode(),
+        _encode_cursor_payload({"id": 5, "served": 0}),
+        _encode_cursor_payload({"v": "yesterday", "id": 5, "served": 0}),
+        _encode_cursor_payload({"v": BASE_TIME.isoformat(), "id": "five", "served": 0}),
     ],
 )
 def test_malformed_cursor_returns_400_not_500(
@@ -388,6 +448,50 @@ def test_malformed_cursor_returns_400_not_500(
             response = await client.get("/api/v1/jobs", params={"cursor": cursor})
             assert response.status_code == 400
             assert "Invalid cursor" in response.json()["detail"]
+
+    _run(run)
+
+
+def test_cursor_with_negative_served_count_returns_400(
+    test_database_url: str,
+) -> None:
+    cursor = _encode_cursor_payload({"v": BASE_TIME.isoformat(), "id": 5, "served": -1})
+
+    async def run() -> None:
+        async with _api(test_database_url, []) as client:
+            response = await client.get("/api/v1/jobs", params={"cursor": cursor})
+            assert response.status_code == 400
+            assert "served" in response.json()["detail"]
+
+    _run(run)
+
+
+def test_cursor_with_non_integer_served_count_returns_400(
+    test_database_url: str,
+) -> None:
+    cursor = _encode_cursor_payload(
+        {"v": BASE_TIME.isoformat(), "id": 5, "served": "9999"}
+    )
+
+    async def run() -> None:
+        async with _api(test_database_url, []) as client:
+            response = await client.get("/api/v1/jobs", params={"cursor": cursor})
+            assert response.status_code == 400
+            assert "served" in response.json()["detail"]
+
+    _run(run)
+
+
+def test_legacy_cursor_without_served_count_returns_400(
+    test_database_url: str,
+) -> None:
+    cursor = _encode_cursor_payload({"v": BASE_TIME.isoformat(), "id": 5})
+
+    async def run() -> None:
+        async with _api(test_database_url, []) as client:
+            response = await client.get("/api/v1/jobs", params={"cursor": cursor})
+            assert response.status_code == 400
+            assert "served" in response.json()["detail"]
 
     _run(run)
 
