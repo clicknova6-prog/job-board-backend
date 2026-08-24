@@ -217,7 +217,7 @@ def test_generate_revalidates_and_excludes_invalid_jobs(
     _run(run)
 
 
-def test_redirect_resolves_inactive_jobs_and_renders_missing_page(
+def test_redirect_resolves_inactive_jobs_and_redirects_missing_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def fake_get(
@@ -233,6 +233,7 @@ def test_redirect_resolves_inactive_jobs_and_renders_missing_page(
         return None
 
     monkeypatch.setattr(AffiliateRepository, "get_by_short_hash", fake_get)
+    monkeypatch.setenv("PUBLIC_SITE_BASE_URL", "https://jobs.example")
 
     async def run() -> None:
         app.dependency_overrides[get_async_session] = _override_session
@@ -248,9 +249,11 @@ def test_redirect_resolves_inactive_jobs_and_renders_missing_page(
                 assert found.headers["location"] == "https://example.test/apply"
 
                 missing = await client.get("/r/missing")
-                assert missing.status_code == 404
-                assert "This job is no longer available" in missing.text
-                assert 'href="/"' in missing.text
+                assert missing.status_code == 302
+                assert (
+                    missing.headers["location"]
+                    == "https://jobs.example/job-unavailable"
+                )
         finally:
             app.dependency_overrides.pop(get_async_session, None)
 
