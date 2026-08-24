@@ -442,6 +442,11 @@ class Job(Base):
         back_populates="job",
         uselist=False,
     )
+    saved_jobs: Mapped[list[SavedJob]] = relationship(
+        back_populates="job",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class AffiliateLink(Base):
@@ -521,6 +526,41 @@ class User(Base):
         passive_deletes=True,
         foreign_keys="RefreshToken.user_id",
     )
+    saved_jobs: Mapped[list[SavedJob]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class SavedJob(Base):
+    """A job bookmarked by an authenticated job seeker."""
+
+    __tablename__ = "saved_jobs"
+    __table_args__ = (
+        UniqueConstraint("user_id", "job_id", name="saved_jobs_user_job_unique"),
+        Index("saved_jobs_user_id_idx", "user_id"),
+    )
+
+    id: Mapped[UUIDValue] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    user_id: Mapped[UUIDValue] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    job_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("jobs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    saved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="saved_jobs")
+    job: Mapped[Job] = relationship("Job", back_populates="saved_jobs")
 
 
 class AdminUser(Base):
