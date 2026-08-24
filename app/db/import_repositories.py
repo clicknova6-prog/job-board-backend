@@ -22,6 +22,7 @@ class ImportRunRecord:
     provider_id: int
     source_name: str
     source_uri: str | None
+    source_checksum: str | None
     status: str
     started_at: datetime | None
     completed_at: datetime | None
@@ -32,6 +33,8 @@ class ImportRunRecord:
     new_jobs: int
     updated_jobs: int
     deleted_jobs: int
+    unmapped_fields: dict[str, int]
+    field_fallback_warnings: dict[str, int]
     error_message: str | None
     created_at: datetime
     updated_at: datetime
@@ -151,6 +154,7 @@ class ImportRunRepository:
             ImportRun.provider_id,
             ImportRun.source_name,
             ImportRun.source_uri,
+            ImportRun.source_checksum,
             ImportRun.status,
             ImportRun.started_at,
             ImportRun.completed_at,
@@ -161,6 +165,8 @@ class ImportRunRepository:
             ImportRun.new_jobs,
             ImportRun.updated_jobs,
             ImportRun.deleted_jobs,
+            ImportRun.unmapped_fields,
+            ImportRun.field_fallback_warnings,
             ImportRun.error_message,
             ImportRun.created_at,
             ImportRun.updated_at,

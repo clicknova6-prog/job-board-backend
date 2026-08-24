@@ -17,6 +17,7 @@ class ImportRunRead(BaseModel):
     provider_id: int
     source_name: str
     source_uri: str | None
+    source_checksum: str | None
     status: str
     started_at: datetime | None
     completed_at: datetime | None
@@ -27,6 +28,8 @@ class ImportRunRead(BaseModel):
     new_jobs: int
     updated_jobs: int
     deleted_jobs: int
+    unmapped_fields: dict[str, int]
+    field_fallback_warnings: dict[str, int]
     error_message: str | None
     created_at: datetime
     updated_at: datetime
