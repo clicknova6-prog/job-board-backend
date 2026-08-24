@@ -91,7 +91,7 @@ class PromotionService:
                 active_count = repo.count_active_jobs(run.provider_id)
                 valid_staged_count = len(staged_rows)
 
-                anomaly_reasons = self._anomaly_reasons(
+                anomaly_reasons, anomaly_reason_codes = self._anomaly_reasons(
                     active_count=active_count,
                     valid_staged_count=valid_staged_count,
                     drop_threshold_pct=drop_threshold_pct,
@@ -109,6 +109,8 @@ class PromotionService:
                         status="failed",
                         records_imported=0,
                         error_message=error_message,
+                        is_anomalous=True,
+                        anomaly_reasons=anomaly_reason_codes,
                     )
                     repo.commit()
                     return PromotionSummary(
@@ -235,8 +237,8 @@ class PromotionService:
         rejection_rate_pct: float,
         records_received: int,
         records_rejected: int,
-    ) -> list[str]:
-        """Return a human-readable reason for each anomaly threshold tripped.
+    ) -> tuple[list[str], list[str]]:
+        """Return human-readable reasons and machine-readable reason codes.
 
         A drop can only be measured against a provider that already has
         active jobs, and a rejection rate only against a run that received
@@ -244,10 +246,12 @@ class PromotionService:
         dividing by zero.
         """
         reasons: list[str] = []
+        reason_codes: list[str] = []
 
         if active_count > 0:
             drop_pct = (active_count - valid_staged_count) / active_count * 100
             if drop_pct > drop_threshold_pct:
+                reason_codes.append("catalogue_drop")
                 reasons.append(
                     f"active job count dropped {drop_pct:.1f}% "
                     f"(active={active_count}, valid_staged={valid_staged_count}), "
@@ -257,10 +261,11 @@ class PromotionService:
         if records_received > 0:
             rejection_rate = (records_rejected / records_received) * 100
             if rejection_rate > rejection_rate_pct:
+                reason_codes.append("high_rejection_rate")
                 reasons.append(
                     f"rejection rate {rejection_rate:.1f}% "
                     f"(rejected={records_rejected}, received={records_received}), "
                     f"exceeding anomaly_rejection_rate_pct={rejection_rate_pct}"
                 )
 
-        return reasons
+        return reasons, reason_codes

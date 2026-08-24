@@ -35,6 +35,8 @@ class ImportRunRecord:
     deleted_jobs: int
     unmapped_fields: dict[str, int]
     field_fallback_warnings: dict[str, int]
+    is_anomalous: bool
+    anomaly_reasons: list[str]
     error_message: str | None
     created_at: datetime
     updated_at: datetime
@@ -167,6 +169,8 @@ class ImportRunRepository:
             ImportRun.deleted_jobs,
             ImportRun.unmapped_fields,
             ImportRun.field_fallback_warnings,
+            ImportRun.is_anomalous,
+            ImportRun.anomaly_reasons,
             ImportRun.error_message,
             ImportRun.created_at,
             ImportRun.updated_at,

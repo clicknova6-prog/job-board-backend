@@ -541,6 +541,8 @@ class PromotionRepository:
         updated_jobs: int = 0,
         deleted_jobs: int = 0,
         error_message: str | None = None,
+        is_anomalous: bool = False,
+        anomaly_reasons: list[str] | None = None,
     ) -> None:
         """Update an ImportRun with the outcome of the promotion phase.
 
@@ -556,6 +558,8 @@ class PromotionRepository:
         run.updated_jobs = updated_jobs
         run.deleted_jobs = deleted_jobs
         run.error_message = error_message
+        run.is_anomalous = is_anomalous
+        run.anomaly_reasons = list(anomaly_reasons or [])
 
     # ------------------------------------------------------------------
     # Session helpers

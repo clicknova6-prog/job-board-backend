@@ -172,6 +172,12 @@ class ImportRun(Base):
         server_default=text("'{}'::jsonb"),
         comment="Field names that required fallback handling, mapped to record counts.",
     )
+    is_anomalous: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    anomaly_reasons: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

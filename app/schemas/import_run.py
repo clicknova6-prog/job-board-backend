@@ -30,6 +30,8 @@ class ImportRunRead(BaseModel):
     deleted_jobs: int
     unmapped_fields: dict[str, int]
     field_fallback_warnings: dict[str, int]
+    is_anomalous: bool
+    anomaly_reasons: list[str]
     error_message: str | None
     created_at: datetime
     updated_at: datetime
