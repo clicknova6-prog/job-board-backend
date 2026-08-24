@@ -20,7 +20,7 @@ for path in (REPO_ROOT, REPO_ROOT / "scripts"):
 from seed_provider import main as ensure_jobg8_provider
 from sqlalchemy import func, select
 
-from app.db.models import ImportRun, Job
+from app.db.models import ImportRun, Job, Provider
 from app.db.session import SessionLocal
 from app.imports.importer import ImportService
 from app.imports.promotion import PromotionService
@@ -39,13 +39,17 @@ def main() -> None:
     print("STEP 1: ensure jobg8 provider exists")
     print("=" * 60)
     ensure_jobg8_provider()
+    with SessionLocal() as session:
+        provider_id = session.scalar(
+            select(Provider.id).where(Provider.name == "jobg8")
+        )
 
     print()
     print("=" * 60)
     print("STEP 2: staging (ImportService)")
     print("=" * 60)
     print(f"feed: {FEED_PATH}")
-    import_summary = ImportService(FEED_PATH).run()
+    import_summary = ImportService(FEED_PATH, provider_id=provider_id).run()
     print(
         f"staged: total={import_summary.total_jobs} "
         f"valid={import_summary.valid_jobs} invalid={import_summary.invalid_jobs}"

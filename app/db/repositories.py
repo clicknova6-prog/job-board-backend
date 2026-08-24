@@ -242,6 +242,10 @@ class JobRepository:
         record: JobFeedRecord,
         payload_hash: str,
         raw_payload: dict[str, object],
+        remote_status: str | None,
+        remote_status_source: str | None,
+        experience_level: str | None,
+        experience_level_source: str | None,
     ) -> JobStaging:
         """Insert one JobStaging row for a parsed feed record.
 
@@ -310,6 +314,11 @@ class JobRepository:
             ),
             # --- Provider/commercial job type ---
             job_type=record.job_type,
+            # --- Application-inferred metadata ---
+            remote_status=remote_status,
+            remote_status_source=remote_status_source,
+            experience_level=experience_level,
+            experience_level_source=experience_level_source,
             # --- Validation state (set by service layer later if needed) ---
             validation_errors=[],
             is_valid=True,
@@ -377,6 +386,10 @@ def _staged_field_values(staged: JobStaging) -> dict[str, object]:
         "salary_additional": staged.salary_additional,
         "advertiser_logo_url": staged.advertiser_logo_url,
         "job_type": staged.job_type,
+        "remote_status": staged.remote_status,
+        "remote_status_source": staged.remote_status_source,
+        "experience_level": staged.experience_level,
+        "experience_level_source": staged.experience_level_source,
         "source_payload": staged.raw_payload,
         "payload_hash": staged.payload_hash,
     }
@@ -709,9 +722,7 @@ class SitemapRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def list_active_jobs_after(
-        self, *, after_id: int, limit: int
-    ) -> list[SitemapJob]:
+    def list_active_jobs_after(self, *, after_id: int, limit: int) -> list[SitemapJob]:
         """Return one ID-keyset page of active jobs in stable order."""
         rows = self._session.execute(
             select(Job.id, Job.slug, Job.last_imported_at)

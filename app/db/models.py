@@ -257,6 +257,12 @@ class JobStaging(Base):
     salary_additional: Mapped[str | None] = mapped_column(Text)
     advertiser_logo_url: Mapped[str | None] = mapped_column(Text)
     job_type: Mapped[str | None] = mapped_column(Text)
+    remote_status: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    remote_status_source: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    experience_level: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    experience_level_source: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
 
     validation_errors: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB,

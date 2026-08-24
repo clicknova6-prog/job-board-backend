@@ -13,6 +13,10 @@ from app.imports.exceptions import TransientImportError
 from app.imports.hashing import compute_payload_hash
 from app.imports.parser import parse_job_feed
 from app.imports.schemas import JobFeedRecord
+from app.services.inference_service import (
+    infer_experience_level,
+    infer_remote_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,12 +218,24 @@ class ImportService:
                     # faithful copy of what was actually sent.
                     payload_hash = compute_payload_hash(job)
                     raw_payload = job.source_record
+                    remote_status, remote_status_source = infer_remote_status(
+                        job.title,
+                        job.description,
+                    )
+                    experience_level, experience_level_source = infer_experience_level(
+                        job.title,
+                        job.description,
+                    )
 
                     repo.stage_job(
                         run=run,
                         record=job,
                         payload_hash=payload_hash,
                         raw_payload=raw_payload,
+                        remote_status=remote_status,
+                        remote_status_source=remote_status_source,
+                        experience_level=experience_level,
+                        experience_level_source=experience_level_source,
                     )
 
                 if unmapped_fields:
