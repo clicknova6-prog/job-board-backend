@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JobSummary(BaseModel):
@@ -31,6 +31,10 @@ class JobSummary(BaseModel):
     location: str | None
     apply_url: str
     last_imported_at: datetime
+    remote_status: str | None = None
+    remote_status_source: str | None = None
+    experience_level: str | None = None
+    experience_level_source: str | None = None
 
 
 class JobDetail(JobSummary):
@@ -43,6 +47,10 @@ class JobDetail(JobSummary):
     salary_currency: str | None
     salary_period: str | None
     created_at: datetime
+    source_updated_at: datetime | None = Field(
+        default=None,
+        validation_alias="content_updated_at",
+    )
     is_expired: bool
     structured_data: dict[str, Any] | None
 

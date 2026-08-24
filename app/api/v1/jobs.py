@@ -132,6 +132,10 @@ async def get_job_detail(
         location=record.location,
         apply_url=record.apply_url,
         last_imported_at=record.last_imported_at,
+        remote_status=record.remote_status,
+        remote_status_source=record.remote_status_source,
+        experience_level=record.experience_level,
+        experience_level_source=record.experience_level_source,
         description=record.description,
         advertiser_name=record.advertiser_name,
         salary_min=record.salary_min,
@@ -139,6 +143,7 @@ async def get_job_detail(
         salary_currency=record.salary_currency,
         salary_period=record.salary_period,
         created_at=record.created_at,
+        content_updated_at=record.content_updated_at,
         is_expired=not record.is_active,
         structured_data=build_job_posting_ld(record),
     )

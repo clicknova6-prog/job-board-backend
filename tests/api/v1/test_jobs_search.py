@@ -63,6 +63,10 @@ def _job_values(
         "deactivated_at": None if is_active else last_imported_at,
         "first_imported_at": BASE_TIME - timedelta(days=1),
         "last_imported_at": last_imported_at,
+        "remote_status": "remote",
+        "remote_status_source": "inferred",
+        "experience_level": "mid",
+        "experience_level_source": "inferred",
     }
 
 
@@ -418,6 +422,14 @@ def test_response_never_leaks_internal_columns(test_database_url: str) -> None:
                 "location",
                 "apply_url",
                 "last_imported_at",
+                "remote_status",
+                "remote_status_source",
+                "experience_level",
+                "experience_level_source",
             }
+            assert item["remote_status"] == rows[0]["remote_status"]
+            assert item["remote_status_source"] == rows[0]["remote_status_source"]
+            assert item["experience_level"] == rows[0]["experience_level"]
+            assert item["experience_level_source"] == rows[0]["experience_level_source"]
 
     _run(run)

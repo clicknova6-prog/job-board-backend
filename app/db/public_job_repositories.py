@@ -35,6 +35,10 @@ class JobSummaryRecord:
     location: str | None
     apply_url: str
     last_imported_at: datetime
+    remote_status: str | None
+    remote_status_source: str | None
+    experience_level: str | None
+    experience_level_source: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +64,11 @@ class JobDetailRecord:
     salary_period: str | None
     first_imported_at: datetime
     created_at: datetime
+    content_updated_at: datetime | None
+    remote_status: str | None
+    remote_status_source: str | None
+    experience_level: str | None
+    experience_level_source: str | None
     is_active: bool
 
 
@@ -148,6 +157,11 @@ class PublicJobRepository:
             Job.salary_period,
             Job.first_imported_at,
             Job.created_at,
+            Job.content_updated_at,
+            Job.remote_status,
+            Job.remote_status_source,
+            Job.experience_level,
+            Job.experience_level_source,
             Job.is_active,
         ).where(Job.slug == slug)
 
@@ -179,6 +193,10 @@ class PublicJobRepository:
                 Job.location,
                 Job.apply_url,
                 Job.last_imported_at,
+                Job.remote_status,
+                Job.remote_status_source,
+                Job.experience_level,
+                Job.experience_level_source,
             ).where(Job.is_active.is_(True)),
             filters,
         )

@@ -33,6 +33,10 @@ EXPECTED_KEYS = {
     "location",
     "apply_url",
     "last_imported_at",
+    "remote_status",
+    "remote_status_source",
+    "experience_level",
+    "experience_level_source",
     "description",
     "advertiser_name",
     "salary_min",
@@ -40,6 +44,7 @@ EXPECTED_KEYS = {
     "salary_currency",
     "salary_period",
     "created_at",
+    "source_updated_at",
     "is_expired",
     "structured_data",
 }
@@ -75,6 +80,11 @@ def _job_values(*, index: int, is_active: bool = True) -> dict[str, Any]:
         "first_imported_at": BASE_TIME - timedelta(days=1),
         "last_imported_at": BASE_TIME,
         "created_at": BASE_TIME - timedelta(days=2),
+        "content_updated_at": BASE_TIME - timedelta(hours=1),
+        "remote_status": "hybrid",
+        "remote_status_source": "inferred",
+        "experience_level": "senior",
+        "experience_level_source": "inferred",
     }
 
 
@@ -143,6 +153,14 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
             assert body["description"] == row["description"]
             assert body["advertiser_name"] == row["advertiser_name"]
             assert body["apply_url"] == row["apply_url"]
+            assert body["remote_status"] == row["remote_status"]
+            assert body["remote_status_source"] == row["remote_status_source"]
+            assert body["experience_level"] == row["experience_level"]
+            assert body["experience_level_source"] == row["experience_level_source"]
+            assert (
+                datetime.fromisoformat(body["source_updated_at"])
+                == row["content_updated_at"]
+            )
             structured_data = body["structured_data"]
             assert structured_data["@context"] == "https://schema.org/"
             assert structured_data["@type"] == "JobPosting"
