@@ -7,7 +7,7 @@ names use the project's snake_case naming convention.
 
 import re
 from decimal import Decimal
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, Literal, Self
 
 from pydantic import (
     AnyHttpUrl,
@@ -38,6 +38,16 @@ SellPriceAmount = Annotated[
 ]
 """A non-negative provider price; it remains source-payload-only."""
 
+EmploymentType = Literal[
+    "full_time",
+    "part_time",
+    "contract",
+    "temporary",
+    "internship",
+    "other",
+]
+"""Canonical employment arrangements stored by the job board."""
+
 
 # Reusing the annotated types above as adapters keeps the fallback logic and
 # the declared field constraints from drifting apart: a value is only coerced
@@ -48,6 +58,29 @@ _URL_ADAPTER = TypeAdapter(AnyHttpUrl)
 
 _CLEAN_CURRENCY_CODE = re.compile(r"^[A-Za-z]{3}$")
 _CURRENCY_SEPARATORS = re.compile(r"[\s.]+")
+_EMPLOYMENT_TYPE_SEPARATORS = re.compile(r"[\s_-]+")
+_EMPLOYMENT_TYPE_MAP: dict[str, EmploymentType] = {
+    "ft": "full_time",
+    "full time": "full_time",
+    "fulltime": "full_time",
+    "permanent": "full_time",
+    "pt": "part_time",
+    "part time": "part_time",
+    "parttime": "part_time",
+    "contract": "contract",
+    "contractor": "contract",
+    "1099": "contract",
+    "freelance": "contract",
+    "freelancer": "contract",
+    "temp": "temporary",
+    "temporary": "temporary",
+    "seasonal": "temporary",
+    "fixed term": "temporary",
+    "intern": "internship",
+    "internship": "internship",
+    "any": "other",
+    "other": "other",
+}
 
 # Model-internal keys that are not feed elements and must never be captured
 # into the preserved source record.
@@ -79,6 +112,23 @@ def normalize_currency_code(raw: str) -> str | None:
         return tokens[-1].upper()
 
     return None
+
+
+def _employment_type_key(raw: str) -> str:
+    """Make provider employment-type spelling suitable for map lookup."""
+    return _EMPLOYMENT_TYPE_SEPARATORS.sub(" ", raw.strip().casefold())
+
+
+def normalize_employment_type(raw: str) -> EmploymentType | None:
+    """Map a provider employment arrangement to the job-board vocabulary.
+
+    Unknown supplied values become ``other``. The caller retains the unmodified
+    provider value in ``source_record`` and flags the field as a fallback.
+    """
+    key = _employment_type_key(raw)
+    if not key:
+        return None
+    return _EMPLOYMENT_TYPE_MAP.get(key, "other")
 
 
 def _is_lenient_http_url(value: str) -> bool:
@@ -174,10 +224,10 @@ class JobFeedRecord(BaseModel):
         alias="Language",
         description="Provider language code, for example 2057; it is retained as text, not inferred as an ISO code.",
     )
-    employment_type: str | None = Field(
+    employment_type: EmploymentType | None = Field(
         default=None,
         alias="EmploymentType",
-        description="Employment arrangement, such as Full Time or Contract.",
+        description="Employment arrangement normalized to the job-board vocabulary.",
     )
     start_date_text: str | None = Field(
         default=None,
@@ -321,6 +371,13 @@ class JobFeedRecord(BaseModel):
                 return None
             trimmed = raw.strip()
             return trimmed or None
+
+        employment_type = supplied("EmploymentType")
+        if employment_type is not None:
+            employment_type_key = _employment_type_key(employment_type)
+            data["EmploymentType"] = normalize_employment_type(employment_type)
+            if employment_type_key not in _EMPLOYMENT_TYPE_MAP:
+                fallback.add("employment_type")
 
         for field_name, alias in (
             ("salary_currency", "SalaryCurrency"),
