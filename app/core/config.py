@@ -11,6 +11,19 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", encoding="utf-8-sig")
 
 
+def _comma_separated_list(name: str, default: list[str]) -> list[str]:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    return [value.strip() for value in raw_value.split(",") if value.strip()]
+
+
+CORS_ALLOWED_ORIGINS = _comma_separated_list(
+    "CORS_ALLOWED_ORIGINS",
+    ["http://localhost:3000"],
+)
+
+
 def _positive_int(name: str, default: int) -> int:
     value = int(os.environ.get(name, str(default)))
     if value <= 0:

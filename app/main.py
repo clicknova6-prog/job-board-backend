@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -11,9 +12,17 @@ from app.api.v1.jobs import router as jobs_v1_router
 from app.api.v1.me import router as me_v1_router
 from app.auth.admin_router import router as admin_auth_router
 from app.auth.router import router as auth_router
+from app.core.config import CORS_ALLOWED_ORIGINS
 from app.core.rate_limit import limiter
 
 app = FastAPI(title="Job Board Backend")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
