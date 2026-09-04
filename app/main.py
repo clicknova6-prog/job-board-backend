@@ -11,6 +11,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.routers.admin_affiliate import router as admin_affiliate_router
 from app.api.routers.admin_imports import router as admin_imports_router
 from app.api.routers.admin_providers import router as admin_providers_router
+from app.api.routers.health import router as health_router
 from app.api.routers.redirect import router as affiliate_redirect_router
 from app.api.routers.sitemaps import router as sitemap_router
 from app.api.v1.jobs import router as jobs_v1_router
@@ -89,11 +90,13 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
         ),
     )
 
+
 app.include_router(auth_router)
 app.include_router(admin_auth_router)
 app.include_router(admin_affiliate_router)
 app.include_router(admin_imports_router)
 app.include_router(admin_providers_router)
+app.include_router(health_router)
 app.include_router(affiliate_redirect_router)
 app.include_router(sitemap_router)
 app.include_router(jobs_v1_router, prefix="/api/v1", tags=["Jobs"])
