@@ -36,7 +36,11 @@ This is a job board backend built around multi-provider job feed ingestion — c
 - `app/imports/promotion.py` — `PromotionService`: runs the anomaly check (feed-drop % and rejection-rate % against `Provider.config`), upserts staged rows into `jobs` in batches, soft-deletes (`is_active=False`, `deactivated_at`) jobs the run didn't see. Aborting on anomaly leaves `jobs` completely untouched.
 - `app/db/repositories.py` — `JobRepository` and `PromotionRepository`, the only code that touches ORM objects for the import pipeline.
 - `app/db/session.py` — sync engine/session setup, loads `.env` via `python-dotenv` (utf-8-sig).
-- `app/celery_app.py` + `app/tasks/health.py` — Celery app configured with Redis broker/backend; only task so far is a `ping` health check. No import/promotion task exists yet.
+- `app/celery_app.py` + `app/tasks/health.py` — Celery app configured with Redis broker/backend; includes a `ping` health-check task.
+- `app/services/auth/` (`jwt_service.py`, `admin_auth_service.py`, `google_oauth_service.py`) + `app/auth/` (`router.py`, `admin_router.py`, `dependencies.py`, `cookies.py`) — JWT access/refresh auth for public users and admins, Google OAuth login, role-gated admin dependency. DONE, tested in `tests/test_jwt_service.py`, `test_admin_auth_service.py`, `test_google_oauth_service.py`, `test_auth_routes.py`.
+- `app/api/routers/admin_imports.py`, `admin_providers.py`, `admin_affiliate.py` — admin API routes for triggering/inspecting imports, managing providers, and generating affiliate links; every route is gated behind `require_admin_role`. DONE, tested in `tests/test_admin_management_routes.py`.
+- `app/services/affiliate_service.py` + `app/api/routers/redirect.py` — affiliate link generation and the public redirect endpoint. DONE, tested in `tests/test_affiliate.py`, `tests/test_affiliate_routes.py`.
+- `app/tasks/scheduler_tasks.py` + `app/tasks/import_tasks.py` — Celery Beat schedule reads `Provider.schedule_interval_minutes` and dispatches `run_provider_import` per provider, with retry handling for transient errors. DONE, tested in `tests/test_scheduler_tasks.py`, `test_import_tasks.py`.
 - `app/main.py` — FastAPI app. Mounts the auth routers and the v1 public API at `/api/v1`. `GET /` is a liveness message; every job route now reads real `Job` rows.
 - `app/api/v1/jobs.py` — **`GET /api/v1/jobs`, the public job search/listing endpoint (DONE).** Filters on `classification`, `employment_type`, `country_name`, `location`, and `q` (full-text); always constrains `is_active = true`; sorts by `last_imported_at` (`-last_imported_at` selects ASCENDING, inverting the usual `-` convention). Keyset pagination only — never OFFSET.
 - `app/api/v1/cursors.py` — opaque base64 `{"v": <last_imported_at>, "id": <id>}` page tokens. A malformed cursor is a 400, never a 500.
@@ -50,12 +54,8 @@ This is a job board backend built around multi-provider job feed ingestion — c
 
 **NOT built yet:**
 - **API route structure — IN PROGRESS.** `GET /api/v1/jobs` (public search/listing) is DONE. Still missing: job detail (`GET /api/v1/jobs/{slug}`), and any filter-facet or aggregate endpoints
-- Admin panel / provider management UI
-- Celery task(s) that actually run `ImportService` + `PromotionService` on a schedule, and the schedule itself (`Provider.schedule_cron` exists as a column but nothing consumes it)
-- Affiliate redirect handling
 - SEO / sitemap generation
 - Hard-delete cleanup worker (soft-delete + retention window exist in principle; nothing purges rows past the retention period)
-- Automated test suite (no pytest present; `tests/fixtures` exists but verification is currently manual via `scripts/test_import_cycle.py`)
 
 ## Windows Development Environment
 
