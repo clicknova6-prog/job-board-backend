@@ -8,8 +8,6 @@ from unittest.mock import Mock
 
 import pytest
 
-# app.celery_app is imported first on purpose: its autodiscovery loads every
-# task module, so importing a task module first is a circular import.
 from app.celery_app import celery_app
 from app.imports.scheduler import ProviderDispatchPlan
 from app.tasks import scheduler_tasks
@@ -56,18 +54,18 @@ def _wire(
     repository = Mock(name="SchedulerRepository")
     scheduler_service = Mock(name="ProviderSchedulerService")
     scheduler_service.return_value.build_dispatch_plan.return_value = plan
-    import_task = Mock(name="run_provider_import")
+    send_task = Mock(name="send_task")
 
     monkeypatch.setattr(scheduler_tasks, "SessionLocal", lambda: session)
     monkeypatch.setattr(scheduler_tasks, "SchedulerRepository", repository)
     monkeypatch.setattr(scheduler_tasks, "ProviderSchedulerService", scheduler_service)
-    monkeypatch.setattr(scheduler_tasks, "run_provider_import", import_task)
+    monkeypatch.setattr(scheduler_tasks.celery_app, "send_task", send_task)
 
     return SimpleNamespace(
         session=session,
         repository=repository,
         scheduler_service=scheduler_service,
-        import_task=import_task,
+        send_task=send_task,
     )
 
 
@@ -84,7 +82,10 @@ def test_due_providers_are_enqueued_through_the_scheduler_service(
     wiring.repository.assert_called_once_with(wiring.session)
     wiring.scheduler_service.assert_called_once_with(wiring.repository.return_value)
     wiring.scheduler_service.return_value.build_dispatch_plan.assert_called_once_with()
-    assert wiring.import_task.delay.call_args_list == [((1,),), ((3,),)]
+    assert wiring.send_task.call_args_list == [
+        ((scheduler_tasks.RUN_PROVIDER_IMPORT_TASK_NAME,), {"args": [1]}),
+        ((scheduler_tasks.RUN_PROVIDER_IMPORT_TASK_NAME,), {"args": [3]}),
+    ]
     assert wiring.session.entered == 1
     assert wiring.session.exited == 1
     assert result == {
@@ -117,7 +118,7 @@ def test_nothing_is_enqueued_when_no_provider_is_due(
 
     result = dispatch_provider_imports.apply().result
 
-    wiring.import_task.delay.assert_not_called()
+    wiring.send_task.assert_not_called()
     assert result["enqueued_provider_ids"] == []
     assert result["skipped_processing_provider_ids"] == [1]
     assert result["skipped_unconfigured_provider_ids"] == [2]
@@ -130,7 +131,7 @@ def test_no_active_providers_dispatches_an_empty_plan(
 
     result = dispatch_provider_imports.apply().result
 
-    wiring.import_task.delay.assert_not_called()
+    wiring.send_task.assert_not_called()
     assert result["checked_provider_ids"] == []
     assert result["enqueued_provider_ids"] == []
 
