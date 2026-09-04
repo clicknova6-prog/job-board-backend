@@ -26,6 +26,7 @@ from app.auth.dependencies import (
 )
 from app.auth.schemas import AccessTokenResponse
 from app.core.auth_config import GoogleOAuthSettings
+from app.core.errors import error_code, error_content
 from app.core.rate_limit import limiter
 from app.services.auth.exceptions import (
     AuthSubjectDisabledError,
@@ -50,7 +51,10 @@ def _access_token_response(access_token: str) -> JSONResponse:
 
 def _error_response(status_code: int, detail: str) -> JSONResponse:
     """Build a non-leaking authentication error response."""
-    return JSONResponse(status_code=status_code, content={"detail": detail})
+    return JSONResponse(
+        status_code=status_code,
+        content=error_content(code=error_code(status_code), message=detail),
+    )
 
 
 @router.get("/google/login", response_model=None)

@@ -368,7 +368,13 @@ def test_saving_a_nonexistent_job_returns_404(test_database_url: str) -> None:
         ) as (client, _, __):
             response = await client.post("/api/v1/me/saved-jobs/999999999")
             assert response.status_code == 404
-            assert response.json() == {"detail": "Job not found"}
+            assert response.json() == {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Job not found",
+                    "details": None,
+                }
+            }
 
     _run(run)
 
@@ -388,7 +394,13 @@ def test_saving_an_inactive_job_returns_404(test_database_url: str) -> None:
                 f"/api/v1/me/saved-jobs/{job_ids[job['source_job_id']]}"
             )
             assert response.status_code == 404
-            assert response.json() == {"detail": "Job not found"}
+            assert response.json() == {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Job not found",
+                    "details": None,
+                }
+            }
 
             async with session_factory() as session:
                 saved_count = await session.scalar(

@@ -15,6 +15,7 @@ from app.auth.cookies import (
 )
 from app.auth.dependencies import get_admin_auth_service, get_jwt_service
 from app.auth.schemas import AccessTokenResponse, AdminLoginRequest
+from app.core.errors import error_content
 from app.core.rate_limit import limiter
 from app.services.auth.admin_auth_service import AdminAuthService
 from app.services.auth.exceptions import (
@@ -37,7 +38,10 @@ def _invalid_credentials_response() -> JSONResponse:
     """Build the generic administrator authentication failure."""
     return JSONResponse(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        content={"detail": "invalid credentials"},
+        content=error_content(
+            code="UNAUTHORIZED",
+            message="invalid credentials",
+        ),
     )
 
 

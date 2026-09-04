@@ -231,7 +231,13 @@ def test_unknown_slug_returns_404(test_database_url: str) -> None:
             response = await client.get("/api/v1/jobs/does-not-exist")
 
             assert response.status_code == 404
-            assert response.json() == {"detail": "Job not found"}
+            assert response.json() == {
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Job not found",
+                    "details": None,
+                }
+            }
 
     _run(run)
 

@@ -302,7 +302,13 @@ def test_google_callback_handles_state_and_provider_errors(
         ) as client:
             response = await client.get("/auth/google/callback", params=params)
         assert response.status_code == 400
-        assert response.json() == {"detail": expected_detail}
+        assert response.json() == {
+            "error": {
+                "code": "BAD_REQUEST",
+                "message": expected_detail,
+                "details": None,
+            }
+        }
 
     asyncio.run(run())
 
@@ -322,7 +328,13 @@ def test_google_email_collision_returns_non_leaking_conflict() -> None:
                 params={"code": "code", "state": "valid-state"},
             )
         assert response.status_code == 409
-        assert response.json() == {"detail": "An account already exists for this email"}
+        assert response.json() == {
+            "error": {
+                "code": "CONFLICT",
+                "message": "An account already exists for this email",
+                "details": None,
+            }
+        }
         assert "internal" not in response.text
 
     asyncio.run(run())
@@ -343,7 +355,13 @@ def test_google_exchange_failure_returns_non_leaking_bad_gateway() -> None:
                 params={"code": "code", "state": "valid-state"},
             )
         assert response.status_code == 502
-        assert response.json() == {"detail": "Google authentication failed"}
+        assert response.json() == {
+            "error": {
+                "code": "BAD_GATEWAY",
+                "message": "Google authentication failed",
+                "details": None,
+            }
+        }
         assert "internal" not in response.text
 
     asyncio.run(run())
@@ -362,6 +380,13 @@ def test_public_refresh_logout_and_refresh_rate_limit() -> None:
 
         assert all(response.status_code == 200 for response in responses[:30])
         assert responses[30].status_code == 429
+        assert responses[30].json() == {
+            "error": {
+                "code": "RATE_LIMITED",
+                "message": "Rate limit exceeded: 30 per 1 minute",
+                "details": None,
+            }
+        }
         assert jwt_service.rotations[0] == ("public-raw-token", "user")
         assert logout.status_code == 204
         assert jwt_service.revocations[-1] == ("public-raw-token", "user")
@@ -412,7 +437,13 @@ def test_admin_login_failure_is_generic() -> None:
                 json={"email": "unknown@example.com", "password": "wrong"},
             )
         assert response.status_code == 401
-        assert response.json() == {"detail": "invalid credentials"}
+        assert response.json() == {
+            "error": {
+                "code": "UNAUTHORIZED",
+                "message": "invalid credentials",
+                "details": None,
+            }
+        }
 
     asyncio.run(run())
 

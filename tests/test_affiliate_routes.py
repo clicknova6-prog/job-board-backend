@@ -70,11 +70,19 @@ def test_admin_affiliate_routes_require_admin_token() -> None:
                 )
                 assert unauthenticated.status_code == 401
                 assert unauthenticated.json() == {
-                    "detail": "Invalid or missing access token"
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "Invalid or missing access token",
+                        "details": None,
+                    }
                 }
                 assert unauthorized.status_code == 401
                 assert unauthorized.json() == {
-                    "detail": "Invalid or missing access token"
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "Invalid or missing access token",
+                        "details": None,
+                    }
                 }
         finally:
             app.dependency_overrides.pop(get_async_session, None)

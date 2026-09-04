@@ -202,7 +202,13 @@ def test_admin_management_routes_enforce_authentication_and_role(
     assert unauthenticated.status_code == 401
     assert user_scoped.status_code == 401
     assert forbidden.status_code == 403
-    assert forbidden.json() == {"detail": "Insufficient administrator role"}
+    assert forbidden.json() == {
+        "error": {
+            "code": "FORBIDDEN",
+            "message": "Insufficient administrator role",
+            "details": None,
+        }
+    }
 
 
 def test_list_import_runs_applies_filters_and_pagination(
@@ -272,7 +278,13 @@ def test_get_import_run_success_and_not_found(
     assert found.status_code == 200
     assert found.json()["id"] == 11
     assert missing.status_code == 404
-    assert missing.json() == {"detail": "Import run not found"}
+    assert missing.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Import run not found",
+            "details": None,
+        }
+    }
 
 
 def test_list_rejected_records_success_and_not_found(
@@ -442,7 +454,14 @@ def test_trigger_provider_import_rejects_unavailable_provider(
     )
 
     assert response.status_code == expected_status
-    assert response.json() == {"detail": expected_detail}
+    expected_code = "NOT_FOUND" if expected_status == 404 else "CONFLICT"
+    assert response.json() == {
+        "error": {
+            "code": expected_code,
+            "message": expected_detail,
+            "details": None,
+        }
+    }
     assert session.commit_count == 0
 
 
@@ -475,7 +494,13 @@ def test_list_and_get_providers_success_and_not_found(
     assert found.status_code == 200
     assert found.json()["name"] == "jobg8"
     assert missing.status_code == 404
-    assert missing.json() == {"detail": "Provider not found"}
+    assert missing.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Provider not found",
+            "details": None,
+        }
+    }
 
 
 def test_patch_provider_updates_only_supplied_fields_and_audits(
@@ -590,7 +615,13 @@ def test_patch_provider_returns_not_found_without_audit(
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "Provider not found"}
+    assert response.json() == {
+        "error": {
+            "code": "NOT_FOUND",
+            "message": "Provider not found",
+            "details": None,
+        }
+    }
     audit.assert_not_awaited()
     assert session.commit_count == 0
 

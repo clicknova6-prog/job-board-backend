@@ -447,7 +447,7 @@ def test_malformed_cursor_returns_400_not_500(
         async with _api(test_database_url, []) as client:
             response = await client.get("/api/v1/jobs", params={"cursor": cursor})
             assert response.status_code == 400
-            assert "Invalid cursor" in response.json()["detail"]
+            assert "Invalid cursor" in response.json()["error"]["message"]
 
     _run(run)
 
@@ -461,7 +461,7 @@ def test_cursor_with_negative_served_count_returns_400(
         async with _api(test_database_url, []) as client:
             response = await client.get("/api/v1/jobs", params={"cursor": cursor})
             assert response.status_code == 400
-            assert "served" in response.json()["detail"]
+            assert "served" in response.json()["error"]["message"]
 
     _run(run)
 
@@ -477,7 +477,7 @@ def test_cursor_with_non_integer_served_count_returns_400(
         async with _api(test_database_url, []) as client:
             response = await client.get("/api/v1/jobs", params={"cursor": cursor})
             assert response.status_code == 400
-            assert "served" in response.json()["detail"]
+            assert "served" in response.json()["error"]["message"]
 
     _run(run)
 
@@ -491,7 +491,7 @@ def test_legacy_cursor_without_served_count_returns_400(
         async with _api(test_database_url, []) as client:
             response = await client.get("/api/v1/jobs", params={"cursor": cursor})
             assert response.status_code == 400
-            assert "served" in response.json()["detail"]
+            assert "served" in response.json()["error"]["message"]
 
     _run(run)
 
@@ -501,6 +501,9 @@ def test_limit_and_sort_bounds_are_enforced(test_database_url: str) -> None:
         async with _api(test_database_url, []) as client:
             too_large = await client.get("/api/v1/jobs", params={"limit": 101})
             assert too_large.status_code == 422
+            assert too_large.json()["error"]["code"] == "VALIDATION_ERROR"
+            assert too_large.json()["error"]["message"] == "Request validation failed"
+            assert too_large.json()["error"]["details"][0]["loc"] == ["query", "limit"]
             too_small = await client.get("/api/v1/jobs", params={"limit": 0})
             assert too_small.status_code == 422
             bad_sort = await client.get("/api/v1/jobs", params={"sort": "title"})
