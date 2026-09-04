@@ -1,7 +1,32 @@
-"""Backfill affiliate links for every active provider.
+"""
+One-time backfill: generate affiliate links for active jobs that don't have one.
 
-Usage from the repository root:
-    python scripts/backfill_affiliate_links.py
+WHY THIS EXISTS:
+Affiliate links are normally auto-generated during every import (see
+PromotionService in app/imports/promotion.py). This script only exists because
+~350k jobs went live BEFORE that automatic generation was added, so they never
+got links. This script closes that one-time gap.
+
+DO YOU NEED TO RUN THIS AGAIN?
+Not for normal operation — new jobs get links automatically on every import,
+with no cap. Re-run this script only if:
+
+- A new provider is added and its historical jobs need a one-time catch-up
+  (same situation as this backfill).
+- You suspect a bug or outage caused some active jobs to be missing links
+  (check with the SQL query below first).
+- You want a quick way to verify/enforce "zero active jobs missing links"
+  at any point.
+
+Safe to re-run any time - it's idempotent (skips jobs that already have a link).
+
+To check if this is even needed before running:
+SELECT COUNT(*) FROM jobs j LEFT JOIN affiliate_links a ON a.job_id = j.id
+WHERE j.is_active = true AND a.id IS NULL;
+(0 = nothing to do)
+
+Usage:
+python scripts/backfill_affiliate_links.py
 """
 
 from __future__ import annotations
