@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.exc import OperationalError
 
+from app.core.filters_cache import filters_cache_invalidator
 from app.db.models import Job, JobStaging
 from app.db.repositories import PromotionRepository
 from app.db.session import SessionLocal
@@ -180,6 +181,7 @@ class PromotionService:
                     error_message=None,
                 )
                 repo.commit()
+                filters_cache_invalidator.bump_version()
 
             except OperationalError as error:
                 repo.rollback()

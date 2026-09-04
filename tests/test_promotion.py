@@ -233,12 +233,19 @@ def _staged_job(
 def _configure_repository(
     monkeypatch: pytest.MonkeyPatch,
     repository: _FullPromotionRepositoryStub,
+    *,
+    filters_cache_invalidator: Mock | None = None,
 ) -> None:
     monkeypatch.setattr(promotion, "SessionLocal", lambda: nullcontext(object()))
     monkeypatch.setattr(
         promotion,
         "PromotionRepository",
         lambda session: repository,
+    )
+    monkeypatch.setattr(
+        promotion,
+        "filters_cache_invalidator",
+        filters_cache_invalidator or Mock(),
     )
 
 
@@ -376,7 +383,10 @@ def test_anomalous_feed_preserves_live_jobs_and_only_flags_run(
         existing_jobs={"job-1": SimpleNamespace(payload_hash="old")},
     )
     service_logger = Mock()
-    _configure_repository(monkeypatch, repository)
+    cache_invalidator = Mock()
+    _configure_repository(
+        monkeypatch, repository, filters_cache_invalidator=cache_invalidator
+    )
 
     summary = promotion.PromotionService(
         run.id,
@@ -394,6 +404,9 @@ def test_anomalous_feed_preserves_live_jobs_and_only_flags_run(
     assert run.is_anomalous is True
     assert run.anomaly_reasons == ["catalogue_drop"]
     service_logger.error.assert_called_once()
+    # An aborted promotion never touches the live jobs table, so the filters
+    # cache is left alone too -- nothing to invalidate.
+    cache_invalidator.bump_version.assert_not_called()
 
 
 def test_normal_feed_promotes_all_outcomes_in_separate_batches(
@@ -417,7 +430,10 @@ def test_normal_feed_promotes_all_outcomes_in_separate_batches(
         },
     )
     service_logger = Mock()
-    _configure_repository(monkeypatch, repository)
+    cache_invalidator = Mock()
+    _configure_repository(
+        monkeypatch, repository, filters_cache_invalidator=cache_invalidator
+    )
 
     summary = promotion.PromotionService(
         run.id,
@@ -449,6 +465,9 @@ def test_normal_feed_promotes_all_outcomes_in_separate_batches(
     assert run.updated_jobs == 1
     assert run.deleted_jobs == 2
     assert run.is_anomalous is False
+    # A completed promotion invalidates the filters cache exactly once, after
+    # its final commit -- never before the outcome is durable.
+    cache_invalidator.bump_version.assert_called_once_with()
 
 
 def test_duplicate_staged_identity_does_not_create_two_canonical_jobs(

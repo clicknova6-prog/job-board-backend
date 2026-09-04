@@ -113,6 +113,40 @@ class RateLimitSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class FiltersCacheSettings:
+    """Redis storage configuration for the cached /jobs/filters response."""
+
+    storage_uri: str
+    ttl_seconds: int
+
+    @classmethod
+    def from_environment(cls) -> FiltersCacheSettings:
+        """Build a Redis URI on a DB distinct from the broker and rate-limit DBs."""
+        broker_url = os.environ.get(
+            "REDIS_BROKER_URL",
+            "redis://localhost:6379/0",
+        )
+        broker_db = _redis_db_index(broker_url)
+        ratelimit_db = int(os.environ.get("REDIS_RATELIMIT_DB", "2"))
+        cache_db = int(os.environ.get("REDIS_FILTERS_CACHE_DB", "3"))
+        if cache_db < 0:
+            raise RuntimeError("REDIS_FILTERS_CACHE_DB cannot be negative")
+        if cache_db == broker_db:
+            raise RuntimeError(
+                "REDIS_FILTERS_CACHE_DB must differ from the Celery broker DB"
+            )
+        if cache_db == ratelimit_db:
+            raise RuntimeError(
+                "REDIS_FILTERS_CACHE_DB must differ from the rate-limit DB"
+            )
+
+        return cls(
+            storage_uri=_redis_url_with_db(broker_url, cache_db),
+            ttl_seconds=_positive_int("FILTERS_CACHE_TTL_SECONDS", 6 * 60 * 60),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SitemapSettings:
     """Configuration used to generate and serve sitemap files."""
 
@@ -135,12 +169,8 @@ class SitemapSettings:
             raise RuntimeError("SITEMAP_CHUNK_SIZE cannot exceed 50000")
 
         return cls(
-            output_dir=Path(
-                os.environ.get("SITEMAP_OUTPUT_DIR", "storage/sitemaps")
-            ),
+            output_dir=Path(os.environ.get("SITEMAP_OUTPUT_DIR", "storage/sitemaps")),
             public_site_base_url=base_url,
             chunk_size=chunk_size,
-            regen_interval_minutes=_positive_int(
-                "SITEMAP_REGEN_INTERVAL_MINUTES", 240
-            ),
+            regen_interval_minutes=_positive_int("SITEMAP_REGEN_INTERVAL_MINUTES", 240),
         )

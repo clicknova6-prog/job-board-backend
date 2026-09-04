@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.cursors import InvalidCursorError, decode_cursor, encode_cursor
+from app.core.filters_cache import filters_cache
 from app.core.rate_limit import limiter, rate_limit_settings
 from app.db.async_session import get_async_session
 from app.db.public_job_repositories import (
@@ -120,9 +121,18 @@ async def get_job_filters(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> JobFilterMetadataOut:
-    """Return filter values that occur on at least one active job."""
-    metadata = await PublicJobRepository(session).get_filter_metadata()
-    return JobFilterMetadataOut.model_validate(metadata)
+    """Return filter values that occur on at least one active job.
+
+    Served from a versioned Redis cache when available; a cache miss (or an
+    unreachable Redis) runs the aggregate query directly.
+    """
+
+    async def compute() -> dict[str, Any]:
+        metadata = await PublicJobRepository(session).get_filter_metadata()
+        return JobFilterMetadataOut.model_validate(metadata).model_dump(mode="json")
+
+    data = await filters_cache.get_or_compute(compute)
+    return JobFilterMetadataOut.model_validate(data)
 
 
 @router.get("/jobs/{slug}", response_model=JobDetail, summary="Get a job by slug")
