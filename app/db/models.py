@@ -684,7 +684,7 @@ class RefreshToken(Base):
             "OR (user_id IS NULL AND admin_user_id IS NOT NULL)",
             name="refresh_tokens_exactly_one_owner_check",
         ),
-        Index("refresh_tokens_token_hash_idx", "token_hash"),
+        Index("refresh_tokens_token_hash_idx", "token_hash", unique=True),
         Index("refresh_tokens_expires_at_idx", "expires_at"),
         Index("refresh_tokens_user_id_idx", "user_id"),
         Index("refresh_tokens_admin_user_id_idx", "admin_user_id"),
