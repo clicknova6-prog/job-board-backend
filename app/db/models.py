@@ -345,6 +345,34 @@ class Job(Base):
             text("last_imported_at DESC"),
             text("id DESC"),
         ),
+        # Same keyset shape as jobs_active_last_imported_at_id_idx, but scoped
+        # to a single filter column each -- without these, a filtered listing
+        # (classification/country_name/employment_type = ...) picks the
+        # filter's single-column index for the WHERE clause and falls back to
+        # an explicit Sort for ordering, demoting the keyset cursor predicate
+        # to a Filter and losing the O(1)-per-page guarantee under deep
+        # pagination.
+        Index(
+            "jobs_active_classification_last_imported_at_id_idx",
+            "is_active",
+            "classification",
+            text("last_imported_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "jobs_active_country_name_last_imported_at_id_idx",
+            "is_active",
+            "country_name",
+            text("last_imported_at DESC"),
+            text("id DESC"),
+        ),
+        Index(
+            "jobs_active_employment_type_last_imported_at_id_idx",
+            "is_active",
+            "employment_type",
+            text("last_imported_at DESC"),
+            text("id DESC"),
+        ),
         Index("jobs_search_vector_gin_idx", "search_vector", postgresql_using="gin"),
         {"comment": "Current canonical job catalogue from Jobg8 snapshots."},
     )
