@@ -101,7 +101,7 @@ async def list_rejected_records(
 
 
 @router.post("/providers/{provider_id}/trigger")
-@limiter.limit(rate_limit_settings.admin_api)
+@limiter.limit(rate_limit_settings.admin_import_trigger)
 async def trigger_provider_import(
     provider_id: int,
     request: Request,

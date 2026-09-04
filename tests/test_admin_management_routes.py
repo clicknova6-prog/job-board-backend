@@ -422,6 +422,50 @@ def test_trigger_provider_import_enqueues_and_audits(
     assert session.commit_count == 1
 
 
+def test_trigger_provider_import_rate_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def get_provider(
+        self: ProviderRepository,
+        provider_id: int,
+    ) -> ProviderRecord | None:
+        return _provider(provider_id)
+
+    task = Mock()
+    task.delay.return_value = SimpleNamespace(id="task-123")
+    fake_celery_module = SimpleNamespace(
+        celery_app=SimpleNamespace(
+            tasks={"app.tasks.import_tasks.run_provider_import": task}
+        )
+    )
+    monkeypatch.setattr(ProviderRepository, "get_provider", get_provider)
+    monkeypatch.setattr(admin_imports, "record_admin_action", AsyncMock())
+    monkeypatch.setitem(sys.modules, "app.celery_app", fake_celery_module)
+    jwt_service = _jwt_service()
+    _configure_dependencies(_SessionStub(), jwt_service)
+    _, headers = _admin_credentials(jwt_service)
+
+    responses = [
+        _request(
+            "POST",
+            "/admin/api/imports/providers/7/trigger",
+            headers=headers,
+            client_host="198.51.100.7",
+        )
+        for _ in range(6)
+    ]
+
+    assert all(response.status_code == 200 for response in responses[:5])
+    assert responses[5].status_code == 429
+    assert responses[5].json() == {
+        "error": {
+            "code": "RATE_LIMITED",
+            "message": "Rate limit exceeded: 5 per 1 minute",
+            "details": None,
+        }
+    }
+
+
 @pytest.mark.parametrize(
     ("provider", "expected_status", "expected_detail"),
     [
