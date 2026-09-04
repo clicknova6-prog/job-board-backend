@@ -27,25 +27,26 @@ EXPECTED_KEYS = {
     "id",
     "slug",
     "title",
-    "classification",
+    "company",
+    "category",
     "employment_type",
     "country_name",
     "location",
-    "apply_url",
+    "job_url",
+    "posted_date",
     "last_imported_at",
+    "status",
     "remote_status",
     "remote_status_source",
     "experience_level",
     "experience_level_source",
     "description",
-    "advertiser_name",
     "salary_min",
     "salary_max",
     "salary_currency",
     "salary_period",
     "created_at",
     "source_updated_at",
-    "is_expired",
     "structured_data",
 }
 
@@ -149,10 +150,14 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
             assert response.status_code == 200
             body = response.json()
             assert set(body) == EXPECTED_KEYS
-            assert body["is_expired"] is False
+            assert body["status"] == "active"
             assert body["description"] == row["description"]
-            assert body["advertiser_name"] == row["advertiser_name"]
-            assert body["apply_url"] == row["apply_url"]
+            assert body["company"] == row["advertiser_name"]
+            assert body["category"] == row["classification"]
+            assert body["job_url"] == row["apply_url"]
+            assert datetime.fromisoformat(body["posted_date"]) == row[
+                "first_imported_at"
+            ]
             assert body["remote_status"] == row["remote_status"]
             assert body["remote_status_source"] == row["remote_status_source"]
             assert body["experience_level"] == row["experience_level"]
@@ -216,10 +221,10 @@ def test_soft_deleted_job_returns_full_expired_detail(
             assert response.status_code == 200
             body = response.json()
             assert set(body) == EXPECTED_KEYS
-            assert body["is_expired"] is True
+            assert body["status"] == "expired"
             assert body["title"] == row["title"]
             assert body["description"] == row["description"]
-            assert body["apply_url"] == row["apply_url"]
+            assert body["job_url"] == row["apply_url"]
             assert body["structured_data"] is None
 
     _run(run)
@@ -255,13 +260,13 @@ def test_detail_response_never_leaks_internal_columns(
     _run(run)
 
 
-def test_active_job_has_non_empty_apply_url(test_database_url: str) -> None:
+def test_active_job_has_non_empty_job_url(test_database_url: str) -> None:
     async def run() -> None:
         async with _api(test_database_url, [_job_values(index=4)]) as client:
             response = await client.get("/api/v1/jobs/detail-test-job-4")
 
             assert response.status_code == 200
-            assert response.json()["apply_url"]
+            assert response.json()["job_url"]
 
     _run(run)
 

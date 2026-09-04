@@ -53,6 +53,7 @@ def _job_values(
         "slug": f"test-job-{index}",
         "title": title,
         "description": description,
+        "advertiser_name": f"Company {index}",
         "classification": classification,
         "employment_type": employment_type,
         "country_name": country_name,
@@ -523,17 +524,27 @@ def test_response_never_leaks_internal_columns(test_database_url: str) -> None:
                 "id",
                 "slug",
                 "title",
-                "classification",
+                "company",
+                "category",
                 "employment_type",
                 "country_name",
                 "location",
-                "apply_url",
+                "job_url",
+                "posted_date",
                 "last_imported_at",
+                "status",
                 "remote_status",
                 "remote_status_source",
                 "experience_level",
                 "experience_level_source",
             }
+            assert item["company"] == rows[0]["advertiser_name"]
+            assert item["category"] == rows[0]["classification"]
+            assert item["job_url"] == rows[0]["apply_url"]
+            assert datetime.fromisoformat(item["posted_date"]) == rows[0][
+                "first_imported_at"
+            ]
+            assert item["status"] == "active"
             assert item["remote_status"] == rows[0]["remote_status"]
             assert item["remote_status_source"] == rows[0]["remote_status_source"]
             assert item["experience_level"] == rows[0]["experience_level"]

@@ -29,12 +29,15 @@ class JobSummaryRecord:
     id: int
     slug: str
     title: str
+    advertiser_name: str | None
     classification: str | None
     employment_type: str | None
     country_name: str | None
     location: str | None
     apply_url: str
+    first_imported_at: datetime
     last_imported_at: datetime
+    is_active: bool
     remote_status: str | None
     remote_status_source: str | None
     experience_level: str | None
@@ -188,12 +191,15 @@ class PublicJobRepository:
                 Job.id,
                 Job.slug,
                 Job.title,
+                Job.advertiser_name,
                 Job.classification,
                 Job.employment_type,
                 Job.country_name,
                 Job.location,
                 Job.apply_url,
+                Job.first_imported_at,
                 Job.last_imported_at,
+                Job.is_active,
                 Job.remote_status,
                 Job.remote_status_source,
                 Job.experience_level,

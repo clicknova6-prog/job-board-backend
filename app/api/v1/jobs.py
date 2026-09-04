@@ -142,7 +142,9 @@ async def get_job_detail(
         country_name=record.country_name,
         location=record.location,
         apply_url=record.apply_url,
+        first_imported_at=record.first_imported_at,
         last_imported_at=record.last_imported_at,
+        is_active=record.is_active,
         remote_status=record.remote_status,
         remote_status_source=record.remote_status_source,
         experience_level=record.experience_level,
@@ -155,6 +157,5 @@ async def get_job_detail(
         salary_period=record.salary_period,
         created_at=record.created_at,
         content_updated_at=record.content_updated_at,
-        is_expired=not record.is_active,
         structured_data=build_job_posting_ld(record),
     )

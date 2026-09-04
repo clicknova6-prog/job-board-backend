@@ -10,38 +10,46 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class JobSummary(BaseModel):
     """One job as rendered in a search or listing result."""
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     # jobs.id is a bigint identity column; Python ints are unbounded so this
     # maps cleanly. slug is the public identifier used by /jobs/{slug}.
     id: int
     slug: str
     title: str
-    classification: str | None
+    advertiser_name: str | None = Field(serialization_alias="company")
+    classification: str | None = Field(serialization_alias="category")
     employment_type: str | None
     country_name: str | None
     location: str | None
-    apply_url: str
+    apply_url: str = Field(serialization_alias="job_url")
+    first_imported_at: datetime = Field(serialization_alias="posted_date")
     last_imported_at: datetime
+    is_active: bool = Field(exclude=True)
     remote_status: str | None = None
     remote_status_source: str | None = None
     experience_level: str | None = None
     experience_level_source: str | None = None
+
+    @computed_field
+    @property
+    def status(self) -> Literal["active", "expired"]:
+        """Translate the internal activity flag into the public lifecycle state."""
+        return "active" if self.is_active else "expired"
 
 
 class JobDetail(JobSummary):
     """The publishable detail view for one active or recently expired job."""
 
     description: str
-    advertiser_name: str | None
     salary_min: Decimal | None
     salary_max: Decimal | None
     salary_currency: str | None
@@ -51,7 +59,6 @@ class JobDetail(JobSummary):
         default=None,
         validation_alias="content_updated_at",
     )
-    is_expired: bool
     structured_data: dict[str, Any] | None
 
 
