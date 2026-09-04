@@ -159,6 +159,7 @@ async def get_job_detail(
         country_name=record.country_name,
         location=record.location,
         apply_url=record.apply_url,
+        redirect_url=record.redirect_url,
         first_imported_at=record.first_imported_at,
         last_imported_at=record.last_imported_at,
         is_active=record.is_active,

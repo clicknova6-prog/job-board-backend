@@ -159,6 +159,23 @@ class PromotionService:
                             job.slug = f"{slug_base}-{job.id}"
 
                     repo.commit()
+
+                    try:
+                        repo.bulk_create_affiliate_links(
+                            run.provider_id,
+                            [job.id for job, _ in new_in_batch],
+                        )
+                        repo.commit()
+                    except Exception:
+                        repo.rollback()
+                        self.logger.exception(
+                            "Affiliate-link generation failed after promotion batch: "
+                            "run_id=%d provider_id=%d batch_start=%d",
+                            run.id,
+                            run.provider_id,
+                            start,
+                        )
+
                     self.logger.info(
                         "Promotion batch committed: run_id=%d batch=%d new=%d updated=%d unchanged=%d",
                         run.id,
@@ -171,6 +188,25 @@ class PromotionService:
                 deactivated_jobs = repo.deactivate_stale_jobs(
                     run.provider_id, run.id, now
                 )
+
+                try:
+                    missing_job_ids = repo.find_active_jobs_missing_affiliate_link(
+                        run.provider_id
+                    )
+                    repo.bulk_create_affiliate_links(
+                        run.provider_id,
+                        missing_job_ids,
+                    )
+                    repo.commit()
+                except Exception:
+                    repo.rollback()
+                    self.logger.exception(
+                        "Affiliate-link backfill failed after promotion: "
+                        "run_id=%d provider_id=%d",
+                        run.id,
+                        run.provider_id,
+                    )
+
                 repo.finish_promotion(
                     run,
                     status="completed",

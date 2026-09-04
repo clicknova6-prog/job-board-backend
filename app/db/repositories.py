@@ -14,15 +14,22 @@ Rules enforced here:
 
 from __future__ import annotations
 
+import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
 from sqlalchemy import delete, exists, func, select, update
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import ImportRun, Job, JobStaging, Provider
+from app.db.models import AffiliateLink, ImportRun, Job, JobStaging, Provider
 from app.imports.schemas import JobFeedRecord
+
+MAX_SHORT_HASH_ATTEMPTS = 3
+SHORT_HASH_CONSTRAINT = "ix_affiliate_links_short_hash"
+AFFILIATE_LINK_BATCH_SIZE = 500
 
 _SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
     {
@@ -460,6 +467,23 @@ class PromotionRepository:
             )
         )
 
+    def find_active_jobs_missing_affiliate_link(
+        self, provider_id: int, limit: int = 5000
+    ) -> list[int]:
+        """Return active provider job ids that have no affiliate-link row."""
+        return list(
+            self._session.scalars(
+                select(Job.id)
+                .outerjoin(AffiliateLink, AffiliateLink.job_id == Job.id)
+                .where(
+                    Job.provider_id == provider_id,
+                    Job.is_active.is_(True),
+                    AffiliateLink.id.is_(None),
+                )
+                .limit(limit)
+            )
+        )
+
     # ------------------------------------------------------------------
     # Write methods
     # ------------------------------------------------------------------
@@ -531,6 +555,57 @@ class PromotionRepository:
             .values(is_active=False, deactivated_at=now)
         )
         return result.rowcount
+
+    def bulk_create_affiliate_links(
+        self, provider_id: int, job_ids: list[int]
+    ) -> None:
+        """Idempotently create one affiliate link for each job that lacks one.
+
+        Inserts are bounded and each collision retry uses a savepoint so a
+        short-hash uniqueness error does not invalidate the caller's outer
+        transaction. The caller remains responsible for committing.
+        """
+        unique_job_ids = list(dict.fromkeys(job_ids))
+        for start in range(0, len(unique_job_ids), AFFILIATE_LINK_BATCH_SIZE):
+            batch = unique_job_ids[start : start + AFFILIATE_LINK_BATCH_SIZE]
+
+            for attempt in range(MAX_SHORT_HASH_ATTEMPTS):
+                values = [
+                    {
+                        "job_id": job_id,
+                        "provider_id": provider_id,
+                        "short_hash": secrets.token_urlsafe(8),
+                        "created_by_admin_id": None,
+                    }
+                    for job_id in batch
+                ]
+                try:
+                    with self._session.begin_nested():
+                        self._session.execute(
+                            insert(AffiliateLink)
+                            .values(values)
+                            .on_conflict_do_nothing(
+                                index_elements=[AffiliateLink.job_id]
+                            )
+                        )
+                    break
+                except IntegrityError as error:
+                    if (
+                        not self._is_short_hash_collision(error)
+                        or attempt == MAX_SHORT_HASH_ATTEMPTS - 1
+                    ):
+                        raise
+
+    @staticmethod
+    def _is_short_hash_collision(error: IntegrityError) -> bool:
+        """Return whether PostgreSQL reported the short-hash unique index."""
+        original = error.orig
+        candidates = (original, getattr(original, "__cause__", None))
+        return any(
+            getattr(candidate, "constraint_name", None) == SHORT_HASH_CONSTRAINT
+            for candidate in candidates
+            if candidate is not None
+        ) or SHORT_HASH_CONSTRAINT in str(original)
 
     def finish_promotion(
         self,

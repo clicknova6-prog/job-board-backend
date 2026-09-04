@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, call
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import ImportRun, Job, JobStaging, Provider
@@ -397,6 +399,71 @@ def test_job_lookup_is_scoped_by_provider_and_source_reference() -> None:
     assert "jobs.source_job_id" in sql
     assert 7 in parameters
     assert "shared" in parameters
+
+
+def test_find_active_jobs_missing_affiliate_link_is_provider_scoped() -> None:
+    session = _session()
+    session.scalars.return_value = [11, 12]
+    repository = PromotionRepository(session)
+
+    assert repository.find_active_jobs_missing_affiliate_link(7, limit=25) == [11, 12]
+    statement = session.scalars.call_args.args[0]
+    sql = str(statement)
+    parameters = _statement_params(statement).values()
+    assert "LEFT OUTER JOIN affiliate_links" in sql
+    assert "jobs.provider_id" in sql
+    assert "jobs.is_active IS true" in sql
+    assert "affiliate_links.id IS NULL" in sql
+    assert 7 in parameters
+    assert 25 in parameters
+
+
+def test_bulk_create_affiliate_links_is_batched_idempotent_insert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    session.begin_nested.return_value = nullcontext()
+    repository = PromotionRepository(session)
+    generated = iter(["hash-one", "hash-two"])
+    monkeypatch.setattr(
+        "app.db.repositories.secrets.token_urlsafe",
+        lambda length: next(generated),
+    )
+
+    repository.bulk_create_affiliate_links(7, [11, 11, 12])
+
+    session.execute.assert_called_once()
+    statement = session.execute.call_args.args[0]
+    compiled = statement.compile()
+    assert "ON CONFLICT (job_id) DO NOTHING" in str(compiled)
+    assert sorted(compiled.params.values(), key=str) == sorted(
+        [11, 12, 7, 7, "hash-one", "hash-two", None, None], key=str
+    )
+    session.commit.assert_not_called()
+
+
+def test_bulk_create_affiliate_links_retries_short_hash_collision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session()
+    session.begin_nested.side_effect = [nullcontext(), nullcontext()]
+    collision = IntegrityError(
+        "INSERT",
+        {},
+        SimpleNamespace(constraint_name="ix_affiliate_links_short_hash"),
+    )
+    session.execute.side_effect = [collision, None]
+    generated = iter(["collision", "replacement"])
+    monkeypatch.setattr(
+        "app.db.repositories.secrets.token_urlsafe",
+        lambda length: next(generated),
+    )
+
+    PromotionRepository(session).bulk_create_affiliate_links(7, [11])
+
+    assert session.execute.call_count == 2
+    assert session.begin_nested.call_count == 2
+    session.rollback.assert_not_called()
 
 
 def test_create_update_and_mark_seen_mutate_one_canonical_job() -> None:

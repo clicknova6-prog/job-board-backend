@@ -32,6 +32,7 @@ class _PromotionRepositoryStub:
         self.commit_count = 0
         self.rollback_count = 0
         self.deactivate_calls: list[tuple[int, int, object]] = []
+        self.affiliate_links: dict[int, str] = {}
 
     def get_import_run(self, import_run_id: int) -> ImportRun | None:
         return self.run if import_run_id == self.run.id else None
@@ -60,6 +61,17 @@ class _PromotionRepositoryStub:
         self.deactivate_calls.append((provider_id, run_id, now))
         return 0
 
+    def bulk_create_affiliate_links(
+        self, provider_id: int, job_ids: list[int]
+    ) -> None:
+        for job_id in job_ids:
+            self.affiliate_links.setdefault(job_id, f"hash-{job_id}")
+
+    def find_active_jobs_missing_affiliate_link(
+        self, provider_id: int, limit: int = 5000
+    ) -> list[int]:
+        return []
+
     def finish_promotion(self, run: ImportRun, **kwargs: Any) -> None:
         DatabasePromotionRepository.finish_promotion(self, run, **kwargs)
 
@@ -83,6 +95,8 @@ class _FullPromotionRepositoryStub:
         provider_exists: bool = True,
         deactivated_jobs: int = 0,
         existing_jobs: dict[str, SimpleNamespace] | None = None,
+        existing_affiliate_links: dict[int, str] | None = None,
+        missing_affiliate_job_ids: list[int] | None = None,
     ) -> None:
         self.run = run
         self.staged_rows = staged_rows or []
@@ -99,6 +113,9 @@ class _FullPromotionRepositoryStub:
         self.flush_count = 0
         self.commit_count = 0
         self.rollback_count = 0
+        self.affiliate_links = dict(existing_affiliate_links or {})
+        self.missing_affiliate_job_ids = list(missing_affiliate_job_ids or [])
+        self.affiliate_create_calls: list[tuple[int, list[int]]] = []
 
     def get_import_run(self, import_run_id: int) -> ImportRun | None:
         if self.run is None or import_run_id != self.run.id:
@@ -179,6 +196,22 @@ class _FullPromotionRepositoryStub:
     ) -> int:
         self.deactivate_calls.append((provider_id, run_id, now))
         return self.deactivated_jobs
+
+    def bulk_create_affiliate_links(
+        self, provider_id: int, job_ids: list[int]
+    ) -> None:
+        self.affiliate_create_calls.append((provider_id, list(job_ids)))
+        for job_id in job_ids:
+            self.affiliate_links.setdefault(job_id, f"hash-{job_id}")
+
+    def find_active_jobs_missing_affiliate_link(
+        self, provider_id: int, limit: int = 5000
+    ) -> list[int]:
+        return [
+            job_id
+            for job_id in self.missing_affiliate_job_ids
+            if job_id not in self.affiliate_links
+        ][:limit]
 
     def finish_promotion(self, run: ImportRun, **kwargs: Any) -> None:
         self.finished_promotions.append({"run": run, **kwargs})
@@ -456,8 +489,10 @@ def test_normal_feed_promotes_all_outcomes_in_separate_batches(
     assert repository.updated_jobs[0][1].source_job_id == "changed-job"
     assert repository.seen_jobs == [(unchanged_job, run.id)]
     assert len(repository.deactivate_calls) == 1
-    # Two batch commits plus the final outcome/deactivation commit.
-    assert repository.commit_count == 3
+    # Two job commits, two per-batch affiliate commits, one backfill commit,
+    # and the final outcome commit.
+    assert repository.commit_count == 6
+    assert repository.affiliate_links == {1000: "hash-1000"}
     assert service_logger.info.call_count == 2
     assert run.status == "completed"
     assert run.records_imported == 2
@@ -488,6 +523,93 @@ def test_duplicate_staged_identity_does_not_create_two_canonical_jobs(
     assert summary.unchanged_jobs == 1
     assert len(repository.created_jobs) == 1
     assert len(repository.seen_jobs) == 1
+
+
+def test_repeated_promotion_does_not_replace_existing_affiliate_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _import_run(records_received=2)
+    repository = _FullPromotionRepositoryStub(
+        run,
+        staged_rows=[
+            _staged_job("first", payload_hash="same-1"),
+            _staged_job("second", payload_hash="same-2"),
+        ],
+    )
+    _configure_repository(monkeypatch, repository)
+
+    first_summary = promotion.PromotionService(run.id).run()
+    original_links = dict(repository.affiliate_links)
+    run.status = "processing"
+    second_summary = promotion.PromotionService(run.id).run()
+
+    assert first_summary.new_jobs == 2
+    assert second_summary.new_jobs == 0
+    assert second_summary.unchanged_jobs == 2
+    assert repository.affiliate_links == original_links
+    assert set(original_links) == {1000, 1001}
+
+
+def test_job_update_preserves_existing_affiliate_short_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _import_run(records_received=1)
+    existing = SimpleNamespace(id=77, payload_hash="old-hash")
+    repository = _FullPromotionRepositoryStub(
+        run,
+        staged_rows=[_staged_job("changed", payload_hash="new-hash")],
+        existing_jobs={"changed": existing},
+        existing_affiliate_links={77: "stable-short-hash"},
+    )
+    _configure_repository(monkeypatch, repository)
+
+    summary = promotion.PromotionService(run.id).run()
+
+    assert summary.updated_jobs == 1
+    assert repository.affiliate_links == {77: "stable-short-hash"}
+
+
+def test_promotion_backfills_active_job_missing_affiliate_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _import_run()
+    repository = _FullPromotionRepositoryStub(
+        run,
+        missing_affiliate_job_ids=[55],
+    )
+    _configure_repository(monkeypatch, repository)
+
+    summary = promotion.PromotionService(run.id).run()
+
+    assert summary.new_jobs == 0
+    assert repository.affiliate_links == {55: "hash-55"}
+    assert repository.affiliate_create_calls == [(1, [55])]
+
+
+def test_affiliate_failures_are_logged_without_failing_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = _import_run(records_received=1)
+    repository = _FullPromotionRepositoryStub(
+        run,
+        staged_rows=[_staged_job("new", payload_hash="hash")],
+        missing_affiliate_job_ids=[1000],
+    )
+    repository.bulk_create_affiliate_links = Mock(
+        side_effect=[RuntimeError("batch link failure"), RuntimeError("backfill failure")]
+    )
+    service_logger = Mock()
+    _configure_repository(monkeypatch, repository)
+
+    summary = promotion.PromotionService(
+        run.id,
+        service_logger=service_logger,
+    ).run()
+
+    assert summary.new_jobs == 1
+    assert run.status == "completed"
+    assert repository.rollback_count == 2
+    assert service_logger.exception.call_count == 2
 
 
 @pytest.mark.parametrize(
