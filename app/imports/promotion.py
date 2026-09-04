@@ -7,13 +7,14 @@ promotion decides what those records mean for the live jobs table.
 
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import OperationalError
 
 from app.core.filters_cache import filters_cache_invalidator
-from app.db.models import Job, JobStaging
+from app.db.models import ImportRun, Job, JobStaging, Provider
 from app.db.repositories import PromotionRepository
 from app.db.session import SessionLocal
 from app.imports.exceptions import TransientImportError
@@ -86,126 +87,25 @@ class PromotionService:
 
                 staged_rows = repo.load_valid_staged_jobs(self.import_run_id)
 
-                config = provider.config or {}
-                drop_threshold_pct = config.get("anomaly_drop_threshold_pct", 20)
-                rejection_rate_pct = config.get("anomaly_rejection_rate_pct", 15)
-                active_count = repo.count_active_jobs(run.provider_id)
-                valid_staged_count = len(staged_rows)
-
-                anomaly_reasons, anomaly_reason_codes = self._anomaly_reasons(
-                    active_count=active_count,
-                    valid_staged_count=valid_staged_count,
-                    drop_threshold_pct=drop_threshold_pct,
-                    rejection_rate_pct=rejection_rate_pct,
-                    records_received=run.records_received,
-                    records_rejected=run.records_rejected,
-                )
-                if anomaly_reasons:
-                    error_message = "Promotion aborted due to anomaly: " + "; ".join(
-                        anomaly_reasons
-                    )
-                    self.logger.error(error_message)
-                    repo.finish_promotion(
-                        run,
-                        status="failed",
-                        records_imported=0,
-                        error_message=error_message,
-                        is_anomalous=True,
-                        anomaly_reasons=anomaly_reason_codes,
-                    )
-                    repo.commit()
+                if self._run_anomaly_check(
+                    repo,
+                    run=run,
+                    provider=provider,
+                    valid_staged_count=len(staged_rows),
+                ):
                     return PromotionSummary(
                         new_jobs=0, updated_jobs=0, unchanged_jobs=0, deactivated_jobs=0
                     )
 
-                new_jobs = 0
-                updated_jobs = 0
-                unchanged_jobs = 0
-
-                for start in range(0, len(staged_rows), self.batch_size):
-                    batch = staged_rows[start : start + self.batch_size]
-                    new_in_batch: list[tuple[Job, JobStaging]] = []
-
-                    for staged in batch:
-                        existing = repo.get_job_by_provider_and_source(
-                            run.provider_id, staged.source_job_id
-                        )
-                        if existing is None:
-                            # slug is assigned after flush, below — see create_job().
-                            placeholder_slug = (
-                                f"__pending__{run.provider_id}__{staged.source_job_id}"
-                            )
-                            job = repo.create_job(
-                                run=run,
-                                staged=staged,
-                                placeholder_slug=placeholder_slug,
-                                now=now,
-                            )
-                            new_in_batch.append((job, staged))
-                            new_jobs += 1
-                        elif existing.payload_hash != staged.payload_hash:
-                            repo.update_job_from_staged(existing, staged, run.id, now)
-                            updated_jobs += 1
-                        else:
-                            repo.mark_job_seen(existing, run.id, now)
-                            unchanged_jobs += 1
-
-                    if new_in_batch:
-                        repo.flush()
-                        for job, staged in new_in_batch:
-                            slug_base = slugify(
-                                f"{staged.title or ''}-{staged.advertiser_name or ''}"
-                            )
-                            job.slug = f"{slug_base}-{job.id}"
-
-                    repo.commit()
-
-                    try:
-                        repo.bulk_create_affiliate_links(
-                            run.provider_id,
-                            [job.id for job, _ in new_in_batch],
-                        )
-                        repo.commit()
-                    except Exception:
-                        repo.rollback()
-                        self.logger.exception(
-                            "Affiliate-link generation failed after promotion batch: "
-                            "run_id=%d provider_id=%d batch_start=%d",
-                            run.id,
-                            run.provider_id,
-                            start,
-                        )
-
-                    self.logger.info(
-                        "Promotion batch committed: run_id=%d batch=%d new=%d updated=%d unchanged=%d",
-                        run.id,
-                        len(batch),
-                        new_jobs,
-                        updated_jobs,
-                        unchanged_jobs,
-                    )
+                new_jobs, updated_jobs, unchanged_jobs = self._promote_batches(
+                    repo, run=run, staged_rows=staged_rows, now=now
+                )
 
                 deactivated_jobs = repo.deactivate_stale_jobs(
                     run.provider_id, run.id, now
                 )
 
-                try:
-                    missing_job_ids = repo.find_active_jobs_missing_affiliate_link(
-                        run.provider_id
-                    )
-                    repo.bulk_create_affiliate_links(
-                        run.provider_id,
-                        missing_job_ids,
-                    )
-                    repo.commit()
-                except Exception:
-                    repo.rollback()
-                    self.logger.exception(
-                        "Affiliate-link backfill failed after promotion: "
-                        "run_id=%d provider_id=%d",
-                        run.id,
-                        run.provider_id,
-                    )
+                self._backfill_missing_affiliate_links(repo, run=run)
 
                 repo.finish_promotion(
                     run,
@@ -237,6 +137,167 @@ class PromotionService:
             unchanged_jobs=unchanged_jobs,
             deactivated_jobs=deactivated_jobs,
         )
+
+    def _run_anomaly_check(
+        self,
+        repo: PromotionRepository,
+        *,
+        run: ImportRun,
+        provider: Provider,
+        valid_staged_count: int,
+    ) -> bool:
+        """Return True when the run is anomalous and promotion must abort.
+
+        Aborting marks the run 'failed' and commits that outcome; the jobs
+        table is never touched.
+        """
+        config = provider.config or {}
+        drop_threshold_pct = config.get("anomaly_drop_threshold_pct", 20)
+        rejection_rate_pct = config.get("anomaly_rejection_rate_pct", 15)
+        active_count = repo.count_active_jobs(run.provider_id)
+
+        anomaly_reasons, anomaly_reason_codes = self._anomaly_reasons(
+            active_count=active_count,
+            valid_staged_count=valid_staged_count,
+            drop_threshold_pct=drop_threshold_pct,
+            rejection_rate_pct=rejection_rate_pct,
+            records_received=run.records_received,
+            records_rejected=run.records_rejected,
+        )
+        if not anomaly_reasons:
+            return False
+
+        error_message = "Promotion aborted due to anomaly: " + "; ".join(
+            anomaly_reasons
+        )
+        self.logger.error(error_message)
+        repo.finish_promotion(
+            run,
+            status="failed",
+            records_imported=0,
+            error_message=error_message,
+            is_anomalous=True,
+            anomaly_reasons=anomaly_reason_codes,
+        )
+        repo.commit()
+        return True
+
+    def _promote_batches(
+        self,
+        repo: PromotionRepository,
+        *,
+        run: ImportRun,
+        staged_rows: list[JobStaging],
+        now: datetime,
+    ) -> tuple[int, int, int]:
+        """Upsert staged rows into `jobs` batch by batch, committing each batch.
+
+        Returns the (new, updated, unchanged) counts for the whole run.
+        """
+        new_jobs = 0
+        updated_jobs = 0
+        unchanged_jobs = 0
+
+        for start in range(0, len(staged_rows), self.batch_size):
+            batch = staged_rows[start : start + self.batch_size]
+            new_in_batch: list[tuple[Job, JobStaging]] = []
+
+            for staged in batch:
+                existing = repo.get_job_by_provider_and_source(
+                    run.provider_id, staged.source_job_id
+                )
+                if existing is None:
+                    # slug is assigned after flush, below — see create_job().
+                    placeholder_slug = (
+                        f"__pending__{run.provider_id}__{staged.source_job_id}"
+                    )
+                    job = repo.create_job(
+                        run=run,
+                        staged=staged,
+                        placeholder_slug=placeholder_slug,
+                        now=now,
+                    )
+                    new_in_batch.append((job, staged))
+                    new_jobs += 1
+                elif existing.payload_hash != staged.payload_hash:
+                    repo.update_job_from_staged(existing, staged, run.id, now)
+                    updated_jobs += 1
+                else:
+                    repo.mark_job_seen(existing, run.id, now)
+                    unchanged_jobs += 1
+
+            if new_in_batch:
+                repo.flush()
+                for job, staged in new_in_batch:
+                    slug_base = slugify(
+                        f"{staged.title or ''}-{staged.advertiser_name or ''}"
+                    )
+                    job.slug = f"{slug_base}-{job.id}"
+
+            repo.commit()
+
+            self._generate_affiliate_links(
+                repo,
+                provider_id=run.provider_id,
+                load_job_ids=lambda: [job.id for job, _ in new_in_batch],
+                failure_message=(
+                    "Affiliate-link generation failed after promotion batch: "
+                    "run_id=%d provider_id=%d batch_start=%d"
+                ),
+                failure_args=(run.id, run.provider_id, start),
+            )
+
+            self.logger.info(
+                "Promotion batch committed: run_id=%d batch=%d new=%d updated=%d unchanged=%d",
+                run.id,
+                len(batch),
+                new_jobs,
+                updated_jobs,
+                unchanged_jobs,
+            )
+
+        return new_jobs, updated_jobs, unchanged_jobs
+
+    def _backfill_missing_affiliate_links(
+        self,
+        repo: PromotionRepository,
+        *,
+        run: ImportRun,
+    ) -> None:
+        """Generate affiliate links for active jobs of this provider missing one."""
+        self._generate_affiliate_links(
+            repo,
+            provider_id=run.provider_id,
+            load_job_ids=lambda: repo.find_active_jobs_missing_affiliate_link(
+                run.provider_id
+            ),
+            failure_message=(
+                "Affiliate-link backfill failed after promotion: "
+                "run_id=%d provider_id=%d"
+            ),
+            failure_args=(run.id, run.provider_id),
+        )
+
+    def _generate_affiliate_links(
+        self,
+        repo: PromotionRepository,
+        *,
+        provider_id: int,
+        load_job_ids: Callable[[], list[int]],
+        failure_message: str,
+        failure_args: tuple[object, ...],
+    ) -> None:
+        """Create affiliate links for the loaded job ids, isolating any failure.
+
+        Affiliate links are best-effort: a failure rolls back its own
+        transaction and is logged, never propagated into the promotion.
+        """
+        try:
+            repo.bulk_create_affiliate_links(provider_id, load_job_ids())
+            repo.commit()
+        except Exception:
+            repo.rollback()
+            self.logger.exception(failure_message, *failure_args)
 
     def _mark_failed(self, error: BaseException) -> None:
         """Persist promotion failure after its working transaction rolls back."""
