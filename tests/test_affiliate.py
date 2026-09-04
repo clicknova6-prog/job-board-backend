@@ -271,7 +271,7 @@ def test_generation_revalidation_excludes_missing_apply_url_per_job(
         "generate_links",
         generate_links,
     )
-    monkeypatch.setattr(admin_affiliate, "logger", service_logger)
+    monkeypatch.setattr(affiliate_service, "logger", service_logger)
 
     async def run() -> None:
         scope = {
@@ -295,6 +295,61 @@ def test_generation_revalidation_excludes_missing_apply_url_per_job(
         ]
 
     asyncio.run(run())
+    service_logger.warning.assert_called_once_with(
+        "Excluded jobs from affiliate-link generation after revalidation",
+        extra={"excluded_job_ids": [2, 3]},
+    )
+
+
+def test_exclusion_warning_is_emitted_before_generate_links_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service_logger = Mock()
+    failure = RuntimeError("link generation failed")
+    generate_calls: list[list[int]] = []
+
+    async def lookup_by_ids(
+        self: AffiliateRepository,
+        provider_id: int,
+        job_ids: list[int],
+    ) -> list[dict[str, object]]:
+        assert provider_id == 7
+        assert job_ids == [1, 2, 3]
+        return [
+            {"id": 1, "apply_url": "https://example.test/apply/1"},
+            {"id": 2, "apply_url": None},
+        ]
+
+    async def generate_links(
+        self: affiliate_service.AffiliateService,
+        session: AsyncSession,
+        provider_id: int,
+        job_ids: list[int],
+        admin_id: object = None,
+    ) -> list[dict[str, object]]:
+        generate_calls.append(job_ids)
+        raise failure
+
+    monkeypatch.setattr(AffiliateRepository, "lookup_jobs_by_ids", lookup_by_ids)
+    monkeypatch.setattr(
+        affiliate_service.AffiliateService,
+        "generate_links",
+        generate_links,
+    )
+    monkeypatch.setattr(affiliate_service, "logger", service_logger)
+
+    async def run() -> None:
+        with pytest.raises(RuntimeError) as exc_info:
+            await affiliate_service.AffiliateService().revalidate_and_generate(
+                object(),  # type: ignore[arg-type]
+                7,
+                [1, 2, 3, 2],
+            )
+        assert exc_info.value is failure
+
+    asyncio.run(run())
+
+    assert generate_calls == [[1]]
     service_logger.warning.assert_called_once_with(
         "Excluded jobs from affiliate-link generation after revalidation",
         extra={"excluded_job_ids": [2, 3]},

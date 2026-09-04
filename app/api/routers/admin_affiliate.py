@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request
@@ -10,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_admin_role
 from app.core.rate_limit import limiter, rate_limit_settings
-from app.db.affiliate_repositories import AffiliateRepository
 from app.db.async_session import get_async_session
 from app.db.models import AdminRole
 from app.schemas.affiliate import (
@@ -23,8 +21,6 @@ from app.schemas.affiliate import (
     AffiliateLookupResponse,
 )
 from app.services.affiliate_service import AffiliateService
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin/api/affiliate",
@@ -60,48 +56,14 @@ async def generate_affiliate_links(
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> AffiliateGenerateResponse:
     """Revalidate confirmed jobs and generate their affiliate links."""
-    requested_job_ids = list(dict.fromkeys(payload.job_ids))
-    rows = await AffiliateRepository(session).lookup_jobs_by_ids(
-        payload.provider_id,
-        requested_job_ids,
-    )
-    jobs_by_id = {row["id"]: row for row in rows}
-
-    valid_job_ids: list[int] = []
-    excluded: list[AffiliateExcludedJob] = []
-    for job_id in requested_job_ids:
-        job = jobs_by_id.get(job_id)
-        if job is None:
-            excluded.append(
-                AffiliateExcludedJob(
-                    job_id=job_id,
-                    reason="Job not found for provider",
-                )
-            )
-        elif job["apply_url"] is None:
-            excluded.append(
-                AffiliateExcludedJob(
-                    job_id=job_id,
-                    reason="Apply URL is unavailable",
-                )
-            )
-        else:
-            valid_job_ids.append(job_id)
-
-    if excluded:
-        logger.warning(
-            "Excluded jobs from affiliate-link generation after revalidation",
-            extra={"excluded_job_ids": [item.job_id for item in excluded]},
-        )
-
-    generated = await AffiliateService().generate_links(
+    result = await AffiliateService().revalidate_and_generate(
         session,
         payload.provider_id,
-        valid_job_ids,
+        payload.job_ids,
     )
     return AffiliateGenerateResponse(
-        generated=[AffiliateGeneratedLink(**item) for item in generated],
-        excluded=excluded,
+        generated=[AffiliateGeneratedLink(**item) for item in result["generated"]],
+        excluded=[AffiliateExcludedJob(**item) for item in result["excluded"]],
     )
 
 
