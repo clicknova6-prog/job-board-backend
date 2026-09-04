@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,6 +19,8 @@ from app.services.auth.exceptions import (
     InvalidAccessTokenError,
     InvalidRefreshTokenError,
 )
+
+logger = logging.getLogger(__name__)
 
 ACCESS_TOKEN_LIFETIME = timedelta(minutes=15)
 REFRESH_TOKEN_LIFETIME = timedelta(days=30)
@@ -151,7 +154,26 @@ class JWTService:
             await self._repository.commit()
             raise AuthSubjectDisabledError("Refresh-token owner is disabled")
 
-        if stored.revoked_at is not None or stored.expires_at <= now:
+        if stored.revoked_at is not None:
+            # Replaying an already-rotated token means the raw value leaked:
+            # kill the whole family, not just the token that was replayed.
+            logger.warning(
+                "Refresh-token reuse detected; revoking the token family",
+                extra={
+                    "subject_id": str(stored.subject_id),
+                    "subject_type": stored.subject_type,
+                    "refresh_token_id": str(stored.id),
+                },
+            )
+            await self._repository.revoke_all_refresh_tokens(
+                subject_id=stored.subject_id,
+                subject_type=stored.subject_type,
+                revoked_at=now,
+            )
+            await self._repository.commit()
+            raise InvalidRefreshTokenError("Invalid refresh token")
+
+        if stored.expires_at <= now:
             await self._repository.rollback()
             raise InvalidRefreshTokenError("Invalid refresh token")
 

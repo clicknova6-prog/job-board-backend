@@ -192,3 +192,24 @@ def test_refresh_token_scope_mismatch_is_rejected_before_mutation() -> None:
         assert len(repository.tokens) == 1
 
     asyncio.run(run())
+
+
+def test_reused_refresh_token_revokes_the_whole_family() -> None:
+    async def run() -> None:
+        subject_id = uuid4()
+        repository = _FakeTokenRepository()
+        service = _service(repository)
+        original = await service.issue_refresh_token(subject_id, "user")
+
+        _, rotated = await service.rotate_refresh_token(original)
+        assert repository.tokens[1].revoked_at is None
+
+        with pytest.raises(InvalidRefreshTokenError):
+            await service.rotate_refresh_token(original)
+
+        assert repository.revoke_all_calls == 1
+        assert all(token.revoked_at is not None for token in repository.tokens)
+        with pytest.raises(InvalidRefreshTokenError):
+            await service.rotate_refresh_token(rotated)
+
+    asyncio.run(run())
