@@ -16,7 +16,7 @@ from app.auth.cookies import (
 from app.auth.dependencies import get_admin_auth_service, get_jwt_service
 from app.auth.schemas import AccessTokenResponse, AdminLoginRequest
 from app.core.errors import error_content
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.services.auth.admin_auth_service import AdminAuthService
 from app.services.auth.exceptions import (
     AuthSubjectDisabledError,
@@ -46,7 +46,7 @@ def _invalid_credentials_response() -> JSONResponse:
 
 
 @router.post("/login", response_model=None)
-@limiter.limit("5/minute")
+@limiter.limit(rate_limit_settings.admin_auth_login)
 async def admin_login(
     request: Request,
     credentials: AdminLoginRequest,
@@ -79,7 +79,7 @@ async def admin_login(
 
 
 @router.post("/refresh", response_model=None)
-@limiter.limit("30/minute")
+@limiter.limit(rate_limit_settings.admin_auth_refresh)
 async def refresh_admin_access_token(
     request: Request,
     jwt_service: Annotated[JWTService, Depends(get_jwt_service)],

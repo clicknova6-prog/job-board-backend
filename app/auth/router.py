@@ -27,7 +27,7 @@ from app.auth.dependencies import (
 from app.auth.schemas import AccessTokenResponse
 from app.core.auth_config import GoogleOAuthSettings
 from app.core.errors import error_code, error_content
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.services.auth.exceptions import (
     AuthSubjectDisabledError,
     GoogleOAuthExchangeError,
@@ -58,7 +58,7 @@ def _error_response(status_code: int, detail: str) -> JSONResponse:
 
 
 @router.get("/google/login", response_model=None)
-@limiter.limit("5/minute")
+@limiter.limit(rate_limit_settings.google_auth)
 async def google_login(
     request: Request,
     settings: Annotated[GoogleOAuthSettings, Depends(get_google_oauth_settings)],
@@ -91,7 +91,7 @@ async def google_login(
 
 
 @router.get("/google/callback", response_model=None)
-@limiter.limit("5/minute")
+@limiter.limit(rate_limit_settings.google_auth)
 async def google_callback(
     request: Request,
     google_service: Annotated[GoogleOAuthService, Depends(get_google_oauth_service)],
@@ -160,7 +160,7 @@ async def google_callback(
 
 
 @router.post("/refresh", response_model=None)
-@limiter.limit("30/minute")
+@limiter.limit(rate_limit_settings.public_auth_refresh)
 async def refresh_access_token(
     request: Request,
     jwt_service: Annotated[JWTService, Depends(get_jwt_service)],

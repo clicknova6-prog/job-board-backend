@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 
@@ -29,6 +30,86 @@ def _positive_int(name: str, default: int) -> int:
     if value <= 0:
         raise RuntimeError(f"{name} must be greater than zero")
     return value
+
+
+def _redis_db_index(redis_url: str) -> int:
+    parts = urlsplit(redis_url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    raw_db = query.get("db", parts.path.lstrip("/") or "0")
+    try:
+        db_index = int(raw_db)
+    except ValueError as exc:
+        raise RuntimeError("Redis URL must contain a numeric database index") from exc
+    if db_index < 0:
+        raise RuntimeError("Redis database index cannot be negative")
+    return db_index
+
+
+def _redis_url_with_db(redis_url: str, db_index: int) -> str:
+    parts = urlsplit(redis_url)
+    if parts.scheme not in {"redis", "rediss"}:
+        raise RuntimeError("REDIS_BROKER_URL must use redis:// or rediss://")
+    query = urlencode(
+        [
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if key.lower() != "db"
+        ]
+    )
+    return urlunsplit(parts._replace(path=f"/{db_index}", query=query))
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitSettings:
+    """Redis storage and per-route rate-limit configuration."""
+
+    storage_uri: str
+    public_jobs: str
+    google_auth: str
+    public_auth_refresh: str
+    admin_auth_login: str
+    admin_auth_refresh: str
+    admin_api: str
+    affiliate_redirect: str
+
+    @classmethod
+    def from_environment(cls) -> RateLimitSettings:
+        """Build a Redis URI on a DB distinct from the Celery broker."""
+        broker_url = os.environ.get(
+            "REDIS_BROKER_URL",
+            "redis://localhost:6379/0",
+        )
+        broker_db = _redis_db_index(broker_url)
+        ratelimit_db = int(os.environ.get("REDIS_RATELIMIT_DB", "2"))
+        if ratelimit_db < 0:
+            raise RuntimeError("REDIS_RATELIMIT_DB cannot be negative")
+        if ratelimit_db == broker_db:
+            raise RuntimeError(
+                "REDIS_RATELIMIT_DB must differ from the Celery broker DB"
+            )
+
+        return cls(
+            storage_uri=_redis_url_with_db(broker_url, ratelimit_db),
+            public_jobs=os.environ.get("RATE_LIMIT_PUBLIC_JOBS", "300/minute"),
+            google_auth=os.environ.get("RATE_LIMIT_GOOGLE_AUTH", "5/minute"),
+            public_auth_refresh=os.environ.get(
+                "RATE_LIMIT_PUBLIC_AUTH_REFRESH",
+                "30/minute",
+            ),
+            admin_auth_login=os.environ.get(
+                "RATE_LIMIT_ADMIN_AUTH_LOGIN",
+                "5/minute",
+            ),
+            admin_auth_refresh=os.environ.get(
+                "RATE_LIMIT_ADMIN_AUTH_REFRESH",
+                "30/minute",
+            ),
+            admin_api=os.environ.get("RATE_LIMIT_ADMIN_API", "120/minute"),
+            affiliate_redirect=os.environ.get(
+                "RATE_LIMIT_AFFILIATE_REDIRECT",
+                "600/minute",
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

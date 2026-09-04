@@ -5,10 +5,11 @@ from __future__ import annotations
 import logging
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import require_admin_role
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.db.affiliate_repositories import AffiliateRepository
 from app.db.async_session import get_async_session
 from app.db.models import AdminRole
@@ -33,15 +34,17 @@ router = APIRouter(
 
 
 @router.post("/lookup", response_model=AffiliateLookupResponse)
+@limiter.limit(rate_limit_settings.admin_api)
 async def lookup_affiliate_jobs(
-    request: AffiliateLookupRequest,
+    request: Request,
+    payload: AffiliateLookupRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> AffiliateLookupResponse:
     """Resolve provider references for administrator review."""
     result = await AffiliateService().lookup_jobs(
         session,
-        request.provider_id,
-        request.source_job_ids,
+        payload.provider_id,
+        payload.source_job_ids,
     )
     return AffiliateLookupResponse(
         matched=[_lookup_match(row) for row in result["matched"]],
@@ -50,14 +53,16 @@ async def lookup_affiliate_jobs(
 
 
 @router.post("/generate", response_model=AffiliateGenerateResponse)
+@limiter.limit(rate_limit_settings.admin_api)
 async def generate_affiliate_links(
-    request: AffiliateGenerateRequest,
+    request: Request,
+    payload: AffiliateGenerateRequest,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> AffiliateGenerateResponse:
     """Revalidate confirmed jobs and generate their affiliate links."""
-    requested_job_ids = list(dict.fromkeys(request.job_ids))
+    requested_job_ids = list(dict.fromkeys(payload.job_ids))
     rows = await AffiliateRepository(session).lookup_jobs_by_ids(
-        request.provider_id,
+        payload.provider_id,
         requested_job_ids,
     )
     jobs_by_id = {row["id"]: row for row in rows}
@@ -91,7 +96,7 @@ async def generate_affiliate_links(
 
     generated = await AffiliateService().generate_links(
         session,
-        request.provider_id,
+        payload.provider_id,
         valid_job_ids,
     )
     return AffiliateGenerateResponse(

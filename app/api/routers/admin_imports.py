@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.request_helpers import get_client_ip
 from app.auth.dependencies import get_current_admin, require_admin_role
 from app.auth.schemas import CurrentAdmin
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.db.async_session import get_async_session
 from app.db.import_repositories import (
     ImportRunRecord,
@@ -36,7 +37,9 @@ router = APIRouter(
 
 
 @router.get("", response_model=PaginatedImportRuns)
+@limiter.limit(rate_limit_settings.admin_api)
 async def list_import_runs(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     provider_id: Annotated[int | None, Query()] = None,
     status_filter: Annotated[ImportRunStatus | None, Query(alias="status")] = None,
@@ -61,8 +64,10 @@ async def list_import_runs(
 
 
 @router.get("/{import_run_id}", response_model=ImportRunRead)
+@limiter.limit(rate_limit_settings.admin_api)
 async def get_import_run(
     import_run_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> ImportRunRecord:
     """Return one import run."""
@@ -73,8 +78,10 @@ async def get_import_run(
 
 
 @router.get("/{import_run_id}/rejected", response_model=PaginatedRejectedRecords)
+@limiter.limit(rate_limit_settings.admin_api)
 async def list_rejected_records(
     import_run_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = DEFAULT_PAGE_SIZE,
     offset: Annotated[int, Query(ge=0)] = 0,
@@ -94,6 +101,7 @@ async def list_rejected_records(
 
 
 @router.post("/providers/{provider_id}/trigger")
+@limiter.limit(rate_limit_settings.admin_api)
 async def trigger_provider_import(
     provider_id: int,
     request: Request,

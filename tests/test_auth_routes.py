@@ -27,7 +27,6 @@ from app.auth.dependencies import (
 )
 from app.auth.schemas import CurrentAdmin, CurrentUser
 from app.core.auth_config import GoogleOAuthSettings, JWTSettings
-from app.core.rate_limit import limiter
 from app.db.auth_repositories import AdminUserRecord, UserRecord
 from app.db.models import AdminRole, OAuthProvider
 from app.main import app
@@ -47,10 +46,8 @@ from app.services.auth.jwt_service import JWTService
 @pytest.fixture(autouse=True)
 def _reset_app_state() -> Iterator[None]:
     app.dependency_overrides.clear()
-    limiter.reset()
     yield
     app.dependency_overrides.clear()
-    limiter.reset()
 
 
 def _google_settings() -> GoogleOAuthSettings:

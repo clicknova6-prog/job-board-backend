@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.api.routers import admin_affiliate
 from app.db.affiliate_repositories import AffiliateRepository
@@ -273,7 +274,15 @@ def test_generation_revalidation_excludes_missing_apply_url_per_job(
     monkeypatch.setattr(admin_affiliate, "logger", service_logger)
 
     async def run() -> None:
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/admin/api/affiliate/generate",
+            "headers": [],
+            "client": ("testclient", 50000),
+        }
         response = await admin_affiliate.generate_affiliate_links(
+            Request(scope),
             AffiliateGenerateRequest(provider_id=7, job_ids=[1, 2, 3, 2]),
             object(),  # type: ignore[arg-type]
         )
@@ -345,7 +354,9 @@ def test_generation_deduplicates_jobs_and_repeat_request_reuses_existing_hash(
 ) -> None:
     repository = _AffiliateRepositoryStub([])
     session = _session()
-    generated_hashes = iter(["first-hash", "second-hash", "replacement-1", "replacement-2"])
+    generated_hashes = iter(
+        ["first-hash", "second-hash", "replacement-1", "replacement-2"]
+    )
     service = affiliate_service.AffiliateService()
     monkeypatch.setattr(
         affiliate_service,
@@ -360,7 +371,11 @@ def test_generation_deduplicates_jobs_and_repeat_request_reuses_existing_hash(
         repeated = await service.generate_links(session, 7, [1, 2], admin_id)
 
         assert first == [
-            {"job_id": 1, "short_hash": "second-hash", "redirect_url": "/r/second-hash"},
+            {
+                "job_id": 1,
+                "short_hash": "second-hash",
+                "redirect_url": "/r/second-hash",
+            },
             {"job_id": 2, "short_hash": "first-hash", "redirect_url": "/r/first-hash"},
         ]
         assert repeated == first
@@ -385,11 +400,14 @@ def test_generate_empty_input_does_not_open_repository_or_transaction(
     session = _session()
 
     async def run() -> None:
-        assert await affiliate_service.AffiliateService().generate_links(
-            session,
-            7,
-            [],
-        ) == []
+        assert (
+            await affiliate_service.AffiliateService().generate_links(
+                session,
+                7,
+                [],
+            )
+            == []
+        )
 
     asyncio.run(run())
     repository_factory.assert_not_called()

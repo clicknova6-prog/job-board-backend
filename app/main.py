@@ -101,5 +101,6 @@ app.include_router(me_v1_router, prefix="/api/v1")
 
 
 @app.get("/")
+@limiter.exempt
 def root():
     return {"message": "Job Board Backend is running!"}

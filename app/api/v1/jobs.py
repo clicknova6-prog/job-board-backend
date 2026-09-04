@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.cursors import InvalidCursorError, decode_cursor, encode_cursor
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.db.async_session import get_async_session
 from app.db.public_job_repositories import (
     JobKeysetCursor,
@@ -34,7 +35,9 @@ SortOption = Literal["last_imported_at", "-last_imported_at"]
 
 
 @router.get("/jobs", response_model=JobListResponse, summary="Search active jobs")
+@limiter.limit(rate_limit_settings.public_jobs)
 async def search_jobs(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     classification: Annotated[str | None, Query()] = None,
     employment_type: Annotated[str | None, Query()] = None,
@@ -112,7 +115,9 @@ async def search_jobs(
     response_model=JobFilterMetadataOut,
     summary="List available job filters",
 )
+@limiter.limit(rate_limit_settings.public_jobs)
 async def get_job_filters(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> JobFilterMetadataOut:
     """Return filter values that occur on at least one active job."""
@@ -121,8 +126,10 @@ async def get_job_filters(
 
 
 @router.get("/jobs/{slug}", response_model=JobDetail, summary="Get a job by slug")
+@limiter.limit(rate_limit_settings.public_jobs)
 async def get_job_detail(
     slug: str,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> JobDetail:
     """Return an active or soft-deleted job by its public slug."""

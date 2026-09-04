@@ -6,11 +6,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
 from app.core.config import SitemapSettings
+from app.core.rate_limit import limiter
 
 router = APIRouter(tags=["Sitemaps"])
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
+@limiter.exempt
 def robots_txt() -> PlainTextResponse:
     """Serve crawler directives using the configured public site URL."""
     base_url = SitemapSettings.from_environment().public_site_base_url
@@ -34,12 +36,14 @@ def _sitemap_file(filename: str):
 
 
 @router.get("/sitemap.xml", response_class=FileResponse)
+@limiter.exempt
 def sitemap_index() -> FileResponse:
     """Serve the pre-generated sitemap index."""
     return FileResponse(_sitemap_file("sitemap.xml"), media_type="application/xml")
 
 
 @router.get("/sitemap-{chunk_number}.xml.gz", response_class=FileResponse)
+@limiter.exempt
 def sitemap_chunk(chunk_number: str) -> FileResponse:
     """Serve one pre-generated compressed sitemap chunk."""
     if not chunk_number.isdigit() or int(chunk_number) < 1:

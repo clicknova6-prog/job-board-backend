@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.request_helpers import get_client_ip
 from app.auth.dependencies import get_current_admin, require_admin_role
 from app.auth.schemas import CurrentAdmin
+from app.core.rate_limit import limiter, rate_limit_settings
 from app.db.async_session import get_async_session
 from app.db.models import AdminRole
 from app.db.provider_repositories import ProviderRecord, ProviderRepository
@@ -24,7 +25,9 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[ProviderRead])
+@limiter.limit(rate_limit_settings.admin_api)
 async def list_providers(
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> list[ProviderRecord]:
     """List all configured providers."""
@@ -32,8 +35,10 @@ async def list_providers(
 
 
 @router.get("/{provider_id}", response_model=ProviderRead)
+@limiter.limit(rate_limit_settings.admin_api)
 async def get_provider(
     provider_id: int,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> ProviderRecord:
     """Return one provider configuration."""
@@ -44,6 +49,7 @@ async def get_provider(
 
 
 @router.patch("/{provider_id}", response_model=ProviderRead)
+@limiter.limit(rate_limit_settings.admin_api)
 async def update_provider(
     provider_id: int,
     update: ProviderUpdate,
@@ -67,6 +73,7 @@ async def update_provider(
 
 
 @router.post("/{provider_id}/activate", response_model=ProviderRead)
+@limiter.limit(rate_limit_settings.admin_api)
 async def activate_provider(
     provider_id: int,
     request: Request,
@@ -86,6 +93,7 @@ async def activate_provider(
 
 
 @router.post("/{provider_id}/deactivate", response_model=ProviderRead)
+@limiter.limit(rate_limit_settings.admin_api)
 async def deactivate_provider(
     provider_id: int,
     request: Request,
