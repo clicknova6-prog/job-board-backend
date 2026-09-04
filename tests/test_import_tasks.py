@@ -24,7 +24,7 @@ from app.celery_app import celery_app
 from app.imports.exceptions import TransientImportError
 from app.imports.importer import ImportSummary
 from app.imports.promotion import PromotionSummary
-from app.tasks import import_tasks
+from app.services import import_orchestration_service
 from app.tasks.import_tasks import run_provider_import
 
 PROVIDER_ID = 7
@@ -132,11 +132,12 @@ def _wire(
     download_service = MagicMock(name="DownloadService")
     download_service.return_value.download.return_value = feed
 
-    monkeypatch.setattr(import_tasks, "SessionLocal", lambda: session)
-    monkeypatch.setattr(import_tasks, "PromotionRepository", repository)
-    monkeypatch.setattr(import_tasks, "ImportService", import_service)
-    monkeypatch.setattr(import_tasks, "PromotionService", promotion_service)
-    monkeypatch.setattr(import_tasks, "DownloadService", download_service)
+    module = import_orchestration_service
+    monkeypatch.setattr(module, "SessionLocal", lambda: session)
+    monkeypatch.setattr(module, "PromotionRepository", repository)
+    monkeypatch.setattr(module, "ImportService", import_service)
+    monkeypatch.setattr(module, "PromotionService", promotion_service)
+    monkeypatch.setattr(module, "DownloadService", download_service)
 
     return SimpleNamespace(
         session=session,
@@ -390,7 +391,7 @@ def test_retry_policy_matches_the_documented_configuration() -> None:
 
 
 def test_log_context_reports_the_task_identity_and_duration() -> None:
-    context = import_tasks._log_context(PROVIDER_ID, RUN_ID, 0.0)
+    context = import_orchestration_service._log_context(PROVIDER_ID, RUN_ID, 0.0)
 
     assert context["provider_id"] == PROVIDER_ID
     assert context["import_run_id"] == RUN_ID
