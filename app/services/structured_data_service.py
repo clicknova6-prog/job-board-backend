@@ -39,7 +39,8 @@ def build_job_posting_ld(
             "value": str(job.id),
         },
         "datePosted": job.first_imported_at.isoformat(),
-        "directApply": True,
+        # Apply happens off-site on the provider (job_url), not on our page.
+        "directApply": False,
         "url": canonical_url,
     }
 

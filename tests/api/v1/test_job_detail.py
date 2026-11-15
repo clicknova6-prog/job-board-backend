@@ -211,7 +211,7 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
                     "unitText": "YEAR",
                 },
             }
-            assert structured_data["directApply"] is True
+            assert structured_data["directApply"] is False
             assert body["canonical_url"] == (
                 f"{TEST_SITE_BASE_URL}/job/detail-test-job-1"
             )
