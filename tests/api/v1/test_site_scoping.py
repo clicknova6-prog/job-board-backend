@@ -10,13 +10,15 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import delete, insert, select
+from sqlalchemy import create_engine, delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.core.site_cors import site_origin_registry
 from app.db.async_session import get_async_session
 from app.db.models import Job, JobSite, Provider, Site
+from app.db.repositories import SitemapRepository
 from app.db.site_repositories import PublicSiteRepository
 from app.main import app
 
@@ -278,3 +280,70 @@ def test_cors_preflight_allows_active_site_origins(
                 assert "access-control-allow-origin" not in response.headers
 
     asyncio.run(run())
+
+
+def _set_priority(database_url: str, slug: str, priority: int) -> None:
+    engine = create_engine(
+        database_url.replace("postgresql://", "postgresql+psycopg://", 1),
+        poolclass=NullPool,
+    )
+    with Session(engine) as session:
+        session.execute(
+            update(Site).where(Site.slug == slug).values(canonical_priority=priority)
+        )
+        session.commit()
+    engine.dispose()
+
+
+def _sitemap_slugs(database_url: str) -> dict[str, set[str]]:
+    engine = create_engine(
+        database_url.replace("postgresql://", "postgresql+psycopg://", 1),
+        poolclass=NullPool,
+    )
+    with Session(engine) as session:
+        repo = SitemapRepository(session)
+        result = {
+            site.slug: {
+                job.slug
+                for job in repo.list_active_jobs_after(
+                    site_id=site.id,
+                    canonical_priority=site.canonical_priority,
+                    after_id=0,
+                    limit=100,
+                )
+            }
+            for site in repo.list_active_sites()
+        }
+    engine.dispose()
+    return result
+
+
+def test_shared_job_has_one_canonical_owner(test_database_url: str) -> None:
+    """Job 4 is on IT and Medical; equal priority -> lower site id (IT) owns."""
+
+    async def run(owner_key: str, other_key: str, owner_base: str) -> None:
+        async with _api(test_database_url) as client:
+            if owner_key == MED_KEY:
+                _set_priority(test_database_url, "med", 10)
+            owner = (
+                await client.get(
+                    "/api/v1/jobs/scope-job-4", headers={"X-Site-Key": owner_key}
+                )
+            ).json()
+            other = (
+                await client.get(
+                    "/api/v1/jobs/scope-job-4", headers={"X-Site-Key": other_key}
+                )
+            ).json()
+            expected = f"{owner_base}/job/scope-job-4"
+            assert owner["canonical_url"] == other["canonical_url"] == expected
+            assert owner["structured_data"]["url"] == expected
+            assert other["structured_data"] is None
+            sitemaps = _sitemap_slugs(test_database_url)
+            owner_slug = "med" if owner_key == MED_KEY else "it"
+            other_slug = "it" if owner_key == MED_KEY else "med"
+            assert "scope-job-4" in sitemaps[owner_slug]
+            assert "scope-job-4" not in sitemaps[other_slug]
+
+    asyncio.run(run(IT_KEY, MED_KEY, "https://it.example.test"))
+    asyncio.run(run(MED_KEY, IT_KEY, "https://med.example.test"))

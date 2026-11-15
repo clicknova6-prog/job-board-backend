@@ -512,6 +512,16 @@ class Site(Base):
         server_default=text("'{}'::jsonb"),
         comment="Site-specific settings (branding, CORS origins, SEO options).",
     )
+    canonical_priority: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default=text("0"),
+        comment=(
+            "When a job is on several sites, the active site with the highest "
+            "priority (then lowest id) owns its canonical URL, sitemap entry and "
+            "JSON-LD."
+        ),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

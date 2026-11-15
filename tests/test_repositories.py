@@ -635,11 +635,15 @@ def test_sitemap_repository_returns_keyset_page_and_empty_result() -> None:
     session.execute.side_effect = [rows, []]
     repository = SitemapRepository(session)
 
-    assert repository.list_active_jobs_after(site_id=7, after_id=10, limit=2) == [
+    assert repository.list_active_jobs_after(
+        site_id=7, canonical_priority=0, after_id=10, limit=2
+    ) == [
         SitemapJob(11, "job-11", NOW),
         SitemapJob(12, "job-12", NOW + timedelta(minutes=1)),
     ]
-    assert repository.list_active_jobs_after(site_id=7, after_id=12, limit=2) == []
+    assert repository.list_active_jobs_after(
+        site_id=7, canonical_priority=0, after_id=12, limit=2
+    ) == []
     statement = session.execute.call_args_list[0].args[0]
     sql = str(statement)
     parameters = _statement_params(statement).values()

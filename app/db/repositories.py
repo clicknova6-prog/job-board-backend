@@ -31,6 +31,7 @@ from app.db.models import (
     Site,
     SiteRoutingRule,
 )
+from app.db.site_queries import owned_by_site
 from app.imports.schemas import JobFeedRecord
 
 _SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
@@ -736,6 +737,7 @@ class SitemapSite:
     id: int
     slug: str
     base_url: str
+    canonical_priority: int = 0
 
 
 class SitemapRepository:
@@ -747,22 +749,27 @@ class SitemapRepository:
     def list_active_sites(self) -> list[SitemapSite]:
         """Return every active site in stable order."""
         rows = self._session.execute(
-            select(Site.id, Site.slug, Site.base_url)
+            select(Site.id, Site.slug, Site.base_url, Site.canonical_priority)
             .where(Site.is_active.is_(True))
             .order_by(Site.id)
         )
-        return [SitemapSite(id=r.id, slug=r.slug, base_url=r.base_url) for r in rows]
+        return [SitemapSite(**row) for row in rows.mappings()]
 
     def list_active_jobs_after(
-        self, *, site_id: int, after_id: int, limit: int
+        self, *, site_id: int, canonical_priority: int, after_id: int, limit: int
     ) -> list[SitemapJob]:
-        """Return one ID-keyset page of a site's active jobs in stable order."""
+        """Return one ID-keyset page of the active jobs this site owns.
+
+        Jobs shared with a higher-ranked site belong to that site's sitemap
+        only, so each URL is listed exactly once across all sites.
+        """
         rows = self._session.execute(
             select(Job.id, Job.slug, Job.last_imported_at)
             .where(
                 Job.is_active.is_(True),
                 Job.id > after_id,
                 exists().where(JobSite.job_id == Job.id, JobSite.site_id == site_id),
+                owned_by_site(site_id, canonical_priority),
             )
             .order_by(Job.id)
             .limit(limit)

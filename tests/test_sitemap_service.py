@@ -70,7 +70,7 @@ def test_generates_chunked_sitemaps_per_site_and_removes_stale_files(
             ]
 
         def list_active_jobs_after(
-            self, *, site_id: int, after_id: int, limit: int
+            self, *, site_id: int, canonical_priority: int, after_id: int, limit: int
         ) -> list[SitemapJob]:
             return [j for j in jobs_by_site[site_id] if j.id > after_id][:limit]
 

@@ -42,6 +42,7 @@ class SiteRead(BaseModel):
     site_key: str
     base_url: str
     is_active: bool
+    canonical_priority: int
     config: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -59,6 +60,12 @@ class SiteCreate(BaseModel):
     site_key: str = Field(min_length=8, max_length=200, pattern=r"^\S+$")
     base_url: str
     is_active: bool = True
+    canonical_priority: int = Field(
+        default=0,
+        ge=-1000,
+        le=1000,
+        description="Higher wins canonical ownership of jobs shared with other sites.",
+    )
     config: dict[str, Any] = Field(default_factory=dict)
 
     _base_url = field_validator("base_url")(_validate_base_url)
@@ -76,6 +83,7 @@ class SiteUpdate(BaseModel):
     )
     base_url: str | None = None
     is_active: bool | None = None
+    canonical_priority: int | None = Field(default=None, ge=-1000, le=1000)
     config: dict[str, Any] | None = None
 
     @field_validator("base_url")

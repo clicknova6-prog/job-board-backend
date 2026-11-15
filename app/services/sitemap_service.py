@@ -81,7 +81,10 @@ class SitemapService:
         build_dir.mkdir()
         try:
             while jobs := repository.list_active_jobs_after(
-                site_id=site.id, after_id=after_id, limit=self.settings.chunk_size
+                site_id=site.id,
+                canonical_priority=site.canonical_priority,
+                after_id=after_id,
+                limit=self.settings.chunk_size,
             ):
                 filename = f"sitemap-{len(chunk_filenames) + 1}.xml.gz"
                 self._write_urlset(build_dir / filename, site.base_url, jobs)

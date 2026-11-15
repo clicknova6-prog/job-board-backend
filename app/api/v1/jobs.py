@@ -158,7 +158,12 @@ async def get_job_detail(
             detail="Job not found",
         )
 
-    canonical_url = job_canonical_url(site.base_url, record.slug)
+    # A job shared by several sites has one canonical owner; other sites point
+    # their canonical at it and leave JSON-LD to the owner (no duplicates).
+    is_owner = record.canonical_site_id in (None, site.id)
+    canonical_url = job_canonical_url(
+        site.base_url if is_owner else record.canonical_base_url, record.slug
+    )
     return JobDetail(
         id=record.id,
         slug=record.slug,
@@ -184,5 +189,9 @@ async def get_job_detail(
         created_at=record.created_at,
         content_updated_at=record.content_updated_at,
         canonical_url=canonical_url,
-        structured_data=build_job_posting_ld(record, canonical_url=canonical_url),
+        structured_data=(
+            build_job_posting_ld(record, canonical_url=canonical_url)
+            if is_owner
+            else None
+        ),
     )

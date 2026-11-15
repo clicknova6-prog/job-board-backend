@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from app.db.models import Job, JobSite
+from app.db.site_queries import canonical_base_url_for_job, canonical_site_id_for_job
 
 # Must match the regconfig baked into the jobs.search_vector generated column
 # (see alembic revision b3c91f4d27ae); a mismatch silently returns no rows.
@@ -73,6 +74,8 @@ class JobDetailRecord:
     experience_level: str | None
     experience_level_source: str | None
     is_active: bool
+    canonical_site_id: int | None = None
+    canonical_base_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,6 +181,8 @@ class PublicJobRepository:
             Job.experience_level,
             Job.experience_level_source,
             Job.is_active,
+            canonical_site_id_for_job().label("canonical_site_id"),
+            canonical_base_url_for_job().label("canonical_base_url"),
         ).where(Job.slug == slug, _on_site(site_id))
 
         result = await self._session.execute(statement)

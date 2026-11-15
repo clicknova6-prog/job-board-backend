@@ -39,6 +39,7 @@ class SiteAdminRecord:
     site_key: str
     base_url: str
     is_active: bool
+    canonical_priority: int
     config: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -68,6 +69,7 @@ def _site_record(
         site_key=site.site_key,
         base_url=site.base_url,
         is_active=site.is_active,
+        canonical_priority=site.canonical_priority,
         config=dict(site.config or {}),
         created_at=site.created_at,
         updated_at=site.updated_at,
