@@ -26,7 +26,9 @@ Status: multi-site work on branch `feat/multi-site` (Nov 2026). Never deployed y
 - **Public API** (`/api/v1/jobs`, `/jobs/filters`, `/jobs/{slug}`) requires `X-Site-Key` (`app/api/site_dependencies.py`): missing → 400, unknown/inactive → 404, browser `Origin` not belonging to the site (its `base_url` + `config.cors_origins`) nor hub-wide (`CORS_ALLOWED_ORIGINS`) → 403. All reads filter by `job_sites`; another site's job is 404
 - **CORS**: `SiteAwareCORSMiddleware` allows env origins plus origins of active sites (60s TTL registry, keeps last known set on DB errors; invalidated on admin site edits)
 - **Filters cache**: key `filters:v{version}:site:{id}`; one version bump (after promotion and after routing) invalidates every site
-- **SEO** per site from `sites.base_url`: sitemaps generated into `SITEMAP_OUTPUT_DIR/<slug>/`, served at `/sites/{slug}/robots.txt`, `/sites/{slug}/sitemap.xml`, `/sites/{slug}/sitemap-{n}.xml.gz` (each frontend rewrites its root paths to these). Job detail returns `canonical_url` = `{base_url}/job/{slug}`; JSON-LD `url` is that page
+- **SEO** per site from `sites.base_url`: sitemaps generated into `SITEMAP_OUTPUT_DIR/<slug>/`, served at `/sites/{slug}/robots.txt`, `/sites/{slug}/sitemap.xml`, `/sites/{slug}/sitemap-{n}.xml.gz` (each frontend rewrites its root paths to these). Job detail returns `canonical_url` = `{owner base_url}/job/{slug}`; JSON-LD (`url` = that page, `directApply: false`) only on the owner
+- **Canonical owner** of a job on several sites: active site with highest `sites.canonical_priority`, ties → lowest id (`app/db/site_queries.py`). Non-owners point `canonical_url` at the owner and return `structured_data: null`; sitemaps list a job only on its owner
+- **Saved jobs**: one account and bookmark table hub-wide; `GET/POST /api/v1/me/saved-jobs` require `X-Site-Key` and only list/save the site's jobs
 - **Apply** links go straight to the provider: `job_url` = `jobs.apply_url` (per-site click tracking deferred)
 - **Admin**: `/admin/api/sites` CRUD, `/{id}/rules` CRUD, `/{id}/routing/preview` (dry run of saved or draft rules, writes nothing), `/routing/run`. All mutations audited in `admin_audit_logs`
 - Seed/tooling: `config/sites/it-tech.json` + `python -m scripts.seed_sites` (idempotent), `python -m scripts.preview_site_routing <slug> [--csv ...]`
@@ -47,8 +49,6 @@ Status: multi-site work on branch `feat/multi-site` (Nov 2026). Never deployed y
 ## Deferred (not in progress)
 
 - Per-site Apply click tracking; search/listing result caching (only filter metadata is cached)
-- Site-scoping of saved jobs (`/api/v1/me`) — saved jobs are hub-wide for now
-- Cross-site canonical choice for jobs on several sites (each site is currently self-canonical)
 - Deleting sites via API (deactivate instead); XML export feature
 
 ## Development Environment
