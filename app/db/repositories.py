@@ -797,11 +797,57 @@ class SiteRoutingRuleRow:
     pattern: str
 
 
+@dataclass(frozen=True, slots=True)
+class SitePreviewJob:
+    """The job projection a routing dry run evaluates."""
+
+    id: int
+    provider_id: int
+    title: str | None
+    classification: str | None
+    is_active: bool
+
+
 class SiteRoutingRepository:
     """Data access for maintaining ``job_sites`` assignments."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
+
+    def list_site_rules(self, site_id: int) -> list[SiteRoutingRuleRow]:
+        """Return the active rules of one site (site activity not checked)."""
+        rows = self._session.execute(
+            select(
+                SiteRoutingRule.id,
+                SiteRoutingRule.site_id,
+                SiteRoutingRule.provider_id,
+                SiteRoutingRule.rule_type,
+                SiteRoutingRule.pattern,
+            )
+            .where(
+                SiteRoutingRule.site_id == site_id,
+                SiteRoutingRule.is_active.is_(True),
+            )
+            .order_by(SiteRoutingRule.id)
+        )
+        return [SiteRoutingRuleRow(**row) for row in rows.mappings()]
+
+    def load_preview_jobs(self, *, chunk_size: int = 5000) -> list[SitePreviewJob]:
+        """Return the routing projection of every job of every provider."""
+        result = self._session.execute(
+            select(
+                Job.id, Job.provider_id, Job.title, Job.classification, Job.is_active
+            ).execution_options(yield_per=chunk_size)
+        )
+        return [SitePreviewJob(**row) for row in result.mappings()]
+
+    def load_site_job_ids(self, site_id: int) -> set[int]:
+        """Return ids of jobs currently assigned to one site."""
+        return set(
+            self._session.scalars(
+                select(JobSite.job_id).where(JobSite.site_id == site_id)
+            )
+        )
 
     def list_provider_ids(self) -> list[int]:
         """Return every provider id, active or not."""

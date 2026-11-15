@@ -10,12 +10,14 @@ import outcome: previous assignments simply stay in place.
 from __future__ import annotations
 
 import logging
-from collections import Counter
+import random
+from collections import Counter, defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from app.db.repositories import SiteRoutingRepository
 from app.db.session import SessionLocal
-from app.sites.matcher import RoutingRule, SiteMatcher
+from app.sites.matcher import EXCLUDE_TITLE, RoutingRule, SiteMatcher, normalize
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,43 @@ class SiteRoutingSummary:
     reassigned: int
     removed: int
     jobs_per_site: dict[int, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class DraftRule:
+    """A rule to evaluate in a dry run; ``rule_id`` is None for unsaved drafts."""
+
+    rule_type: str
+    pattern: str
+    provider_id: int | None = None
+    rule_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RulePreview:
+    rule_id: int | None
+    position: int
+    rule_type: str
+    pattern: str
+    matched: int
+    excluded: int
+    sample_titles: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRoutingPreview:
+    """What a rule set would do to one site's assignments. Nothing is written."""
+
+    site_id: int
+    jobs_evaluated: int
+    matched: int
+    active_matched: int
+    currently_assigned: int
+    would_add: int
+    would_remove: int
+    added_samples: list[str]
+    removed_samples: list[str]
+    rules: list[RulePreview]
 
 
 class SiteRoutingService:
@@ -65,6 +104,98 @@ class SiteRoutingService:
         with self._session_factory() as session:
             provider_ids = SiteRoutingRepository(session).list_provider_ids()
         return [self.route_provider(provider_id) for provider_id in provider_ids]
+
+    def preview_site(
+        self,
+        site_id: int,
+        *,
+        draft_rules: Sequence[DraftRule] | None = None,
+        sample_size: int = 10,
+    ) -> SiteRoutingPreview:
+        """Dry-run one site's rules (saved, or ``draft_rules``) over all jobs.
+
+        Rule precedence mirrors real routing: excludes first, then the first
+        matching rule in list order (saved rules: id order).
+        """
+        with self._session_factory() as session:
+            repo = SiteRoutingRepository(session)
+            if draft_rules is None:
+                draft_rules = [
+                    DraftRule(row.rule_type, row.pattern, row.provider_id, row.id)
+                    for row in repo.list_site_rules(site_id)
+                ]
+            jobs = repo.load_preview_jobs()
+            current = repo.load_site_job_ids(site_id)
+
+        # Matcher rule ids are list positions, so precedence follows the list.
+        rules = [
+            RoutingRule(position, site_id, d.rule_type, d.pattern, d.provider_id)
+            for position, d in enumerate(draft_rules)
+        ]
+        include_rules = [r for r in rules if r.rule_type != EXCLUDE_TITLE]
+        exclude_rules = [r for r in rules if r.rule_type == EXCLUDE_TITLE]
+        matchers: dict[int, tuple[SiteMatcher, SiteMatcher]] = {}
+
+        hits: dict[int, list[str]] = defaultdict(list)
+        excluded: Counter[int] = Counter()
+        desired: set[int] = set()
+        active_matched = 0
+        titles: dict[int, str] = {}
+        for job in jobs:
+            if job.provider_id not in matchers:
+                matchers[job.provider_id] = (
+                    SiteMatcher(rules, provider_id=job.provider_id),
+                    SiteMatcher(include_rules, provider_id=job.provider_id),
+                )
+            full, includes_only = matchers[job.provider_id]
+            match = full.match(title=job.title, classification=job.classification)
+            titles[job.id] = job.title or ""
+            if site_id in match:
+                desired.add(job.id)
+                active_matched += job.is_active
+                hits[match[site_id]].append(job.title or "")
+            elif site_id in includes_only.match(
+                title=job.title, classification=job.classification
+            ):
+                haystack = normalize(job.title)
+                for rule in exclude_rules:
+                    if (
+                        rule.provider_id in (None, job.provider_id)
+                        and normalize(rule.pattern) in haystack
+                    ):
+                        excluded[rule.id] += 1
+                        break
+
+        rng = random.Random(1)
+
+        def sample(values: Sequence[str]) -> list[str]:
+            return rng.sample(list(values), min(sample_size, len(values)))
+
+        added = desired - current
+        removed = current - desired
+        return SiteRoutingPreview(
+            site_id=site_id,
+            jobs_evaluated=len(jobs),
+            matched=len(desired),
+            active_matched=active_matched,
+            currently_assigned=len(current),
+            would_add=len(added),
+            would_remove=len(removed),
+            added_samples=sample([titles[i] for i in sorted(added)]),
+            removed_samples=sample([titles.get(i, "") for i in sorted(removed)]),
+            rules=[
+                RulePreview(
+                    rule_id=draft.rule_id,
+                    position=position,
+                    rule_type=draft.rule_type,
+                    pattern=draft.pattern,
+                    matched=len(hits.get(position, [])),
+                    excluded=excluded.get(position, 0),
+                    sample_titles=sample(hits.get(position, [])),
+                )
+                for position, draft in enumerate(draft_rules)
+            ],
+        )
 
     @staticmethod
     def _route(repo: SiteRoutingRepository, provider_id: int) -> SiteRoutingSummary:
