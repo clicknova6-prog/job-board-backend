@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.site_dependencies import CurrentSite
 from app.api.v1.cursors import InvalidCursorError, decode_cursor, encode_cursor
 from app.core.filters_cache import filters_cache
 from app.core.rate_limit import limiter, rate_limit_settings
@@ -22,6 +23,7 @@ from app.schemas.job_public import (
     JobListResponse,
     JobSummary,
 )
+from app.services.sitemap_service import job_canonical_url
 from app.services.structured_data_service import build_job_posting_ld
 
 router = APIRouter()
@@ -40,6 +42,7 @@ SortOption = Literal["last_imported_at", "-last_imported_at"]
 async def search_jobs(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    site: CurrentSite,
     classification: Annotated[str | None, Query()] = None,
     employment_type: Annotated[str | None, Query()] = None,
     country_name: Annotated[str | None, Query()] = None,
@@ -53,7 +56,7 @@ async def search_jobs(
         str | None, Query(description="Opaque page token from a previous response")
     ] = None,
 ) -> JobListResponse:
-    """Return one keyset-paginated page of active jobs.
+    """Return one keyset-paginated page of the calling site's active jobs.
 
     Inactive (soft-deleted) jobs are never returned. Paging is keyset-based on
     ``(last_imported_at, id)``; OFFSET is intentionally not used so page
@@ -77,6 +80,7 @@ async def search_jobs(
         repository = PublicJobRepository(session)
         # One extra row answers "is there another page?" without a COUNT.
         records = await repository.search(
+            site_id=site.id,
             filters=JobSearchFilters(
                 classification=classification,
                 employment_type=employment_type,
@@ -120,18 +124,21 @@ async def search_jobs(
 async def get_job_filters(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    site: CurrentSite,
 ) -> JobFilterMetadataOut:
-    """Return filter values that occur on at least one active job.
+    """Return filter values that occur on at least one of the site's active jobs.
 
     Served from a versioned Redis cache when available; a cache miss (or an
     unreachable Redis) runs the aggregate query directly.
     """
 
     async def compute() -> dict[str, Any]:
-        metadata = await PublicJobRepository(session).get_filter_metadata()
+        metadata = await PublicJobRepository(session).get_filter_metadata(
+            site_id=site.id
+        )
         return JobFilterMetadataOut.model_validate(metadata).model_dump(mode="json")
 
-    data = await filters_cache.get_or_compute(compute)
+    data = await filters_cache.get_or_compute(compute, scope=f"site:{site.id}")
     return JobFilterMetadataOut.model_validate(data)
 
 
@@ -141,15 +148,22 @@ async def get_job_detail(
     slug: str,
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
+    site: CurrentSite,
 ) -> JobDetail:
-    """Return an active or soft-deleted job by its public slug."""
-    record = await PublicJobRepository(session).get_by_slug(slug)
+    """Return an active or soft-deleted job of the calling site by its slug."""
+    record = await PublicJobRepository(session).get_by_slug(slug, site_id=site.id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Job not found",
         )
 
+    # A job shared by several sites has one canonical owner; other sites point
+    # their canonical at it and leave JSON-LD to the owner (no duplicates).
+    is_owner = record.canonical_site_id in (None, site.id)
+    canonical_url = job_canonical_url(
+        site.base_url if is_owner else record.canonical_base_url, record.slug
+    )
     return JobDetail(
         id=record.id,
         slug=record.slug,
@@ -159,7 +173,6 @@ async def get_job_detail(
         country_name=record.country_name,
         location=record.location,
         apply_url=record.apply_url,
-        redirect_url=record.redirect_url,
         first_imported_at=record.first_imported_at,
         last_imported_at=record.last_imported_at,
         is_active=record.is_active,
@@ -175,5 +188,10 @@ async def get_job_detail(
         salary_period=record.salary_period,
         created_at=record.created_at,
         content_updated_at=record.content_updated_at,
-        structured_data=build_job_posting_ld(record),
+        canonical_url=canonical_url,
+        structured_data=(
+            build_job_posting_ld(record, canonical_url=canonical_url)
+            if is_owner
+            else None
+        ),
     )

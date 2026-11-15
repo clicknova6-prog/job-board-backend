@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import NullPool
 
-from app.db.models import AffiliateLink, ImportRun, Job, JobStaging, Provider
+from app.db.models import ImportRun, Job, JobStaging, Provider
 from app.imports import promotion
 from app.imports.promotion import PromotionService, PromotionSummary, slugify
 
@@ -38,7 +38,6 @@ ADVERTISER_NAME = "Integration Co"
 UPDATED_TITLE = "Staff Backend Engineer"
 UNCHANGED_TITLE = "Data Engineer"
 STALE_TITLE = "Withdrawn Engineer"
-PRESERVED_SHORT_HASH = "integration-unchanged-hash"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +64,7 @@ def _purge_provider_rows(session: Session, provider_name: str) -> None:
     """Delete every row one of this module's providers owns, FK-safe order.
 
     ``jobs.last_seen_import_run_id`` is ON DELETE RESTRICT, so jobs go before
-    import runs. Staging rows cascade from the run, affiliate links from the job.
+    import runs. Staging rows cascade from the run.
     """
     provider_id = session.scalar(
         select(Provider.id).where(Provider.name == provider_name)
@@ -246,17 +245,6 @@ def _seed(session_factory: sessionmaker[Session]) -> SeededPipeline:
         session.add_all([updated_job, unchanged_job, stale_job])
         session.flush()
 
-        # Only the unchanged job starts with a link, so the run has to mint one
-        # for the new job, backfill the update, and leave this short_hash — a
-        # public, possibly already-shared identifier — untouched.
-        session.add(
-            AffiliateLink(
-                short_hash=PRESERVED_SHORT_HASH,
-                job_id=unchanged_job.id,
-                provider_id=provider.id,
-            )
-        )
-
         _stage(
             session,
             run_id=run.id,
@@ -360,21 +348,6 @@ def test_promotion_run_lands_the_full_staged_batch_in_postgres(
         # Soft delete only: the row and its content survive the retention window.
         assert stale_job.last_seen_import_run_id == seeded.previous_run_id
         assert stale_job.title == STALE_TITLE
-
-        links = {
-            link.job_id: link
-            for link in session.scalars(
-                select(AffiliateLink).where(
-                    AffiliateLink.provider_id == seeded.provider_id
-                )
-            )
-        }
-        # Eligible means active: the deactivated job never gets a link.
-        assert set(links) == {new_job.id, updated_job.id, unchanged_job.id}
-        assert links[unchanged_job.id].short_hash == PRESERVED_SHORT_HASH
-        assert links[new_job.id].short_hash
-        assert links[updated_job.id].short_hash
-        assert len({link.short_hash for link in links.values()}) == 3
 
         run = session.get(ImportRun, seeded.run_id)
         assert run is not None
@@ -558,14 +531,6 @@ def test_promotion_aborts_on_anomalous_feed_drop_leaving_jobs_untouched(
             str(row["title"]).startswith("Established Engineer")
             for row in after.values()
         )
-
-        # Affiliate generation and backfill both sit past the abort return.
-        link_count = session.scalar(
-            select(func.count())
-            .select_from(AffiliateLink)
-            .where(AffiliateLink.provider_id == seeded.provider_id)
-        )
-        assert link_count == 0
 
         run = session.get(ImportRun, seeded.run_id)
         assert run is not None

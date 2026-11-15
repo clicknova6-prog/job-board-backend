@@ -3,16 +3,14 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.routers.admin_affiliate import router as admin_affiliate_router
 from app.api.routers.admin_imports import router as admin_imports_router
 from app.api.routers.admin_providers import router as admin_providers_router
+from app.api.routers.admin_sites import router as admin_sites_router
 from app.api.routers.health import router as health_router
-from app.api.routers.redirect import router as affiliate_redirect_router
 from app.api.routers.sitemaps import router as sitemap_router
 from app.api.v1.jobs import router as jobs_v1_router
 from app.api.v1.me import router as me_v1_router
@@ -21,17 +19,19 @@ from app.auth.router import router as auth_router
 from app.core.config import CORS_ALLOWED_ORIGINS
 from app.core.errors import error_code, error_content
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.site_cors import SiteAwareCORSMiddleware, site_origin_registry
 
 logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="Job Board Backend")
 app.add_middleware(
-    CORSMiddleware,
+    SiteAwareCORSMiddleware,
+    registry=site_origin_registry,
     allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Site-Key"],
 )
 app.state.limiter = limiter
 
@@ -93,11 +93,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(auth_router)
 app.include_router(admin_auth_router)
-app.include_router(admin_affiliate_router)
 app.include_router(admin_imports_router)
 app.include_router(admin_providers_router)
+app.include_router(admin_sites_router)
 app.include_router(health_router)
-app.include_router(affiliate_redirect_router)
 app.include_router(sitemap_router)
 app.include_router(jobs_v1_router, prefix="/api/v1", tags=["Jobs"])
 app.include_router(me_v1_router, prefix="/api/v1")

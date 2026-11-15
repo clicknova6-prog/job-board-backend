@@ -14,22 +14,25 @@ Rules enforced here:
 
 from __future__ import annotations
 
-import secrets
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
-from sqlalchemy import delete, exists, func, select, update
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import delete, exists, func, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.db.models import AffiliateLink, ImportRun, Job, JobStaging, Provider
+from app.db.models import (
+    ImportRun,
+    Job,
+    JobSite,
+    JobStaging,
+    Provider,
+    Site,
+    SiteRoutingRule,
+)
+from app.db.site_queries import owned_by_site
 from app.imports.schemas import JobFeedRecord
-
-MAX_SHORT_HASH_ATTEMPTS = 3
-SHORT_HASH_CONSTRAINT = "ix_affiliate_links_short_hash"
-AFFILIATE_LINK_BATCH_SIZE = 500
 
 _SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
     {
@@ -467,23 +470,6 @@ class PromotionRepository:
             )
         )
 
-    def find_active_jobs_missing_affiliate_link(
-        self, provider_id: int, limit: int = 5000
-    ) -> list[int]:
-        """Return active provider job ids that have no affiliate-link row."""
-        return list(
-            self._session.scalars(
-                select(Job.id)
-                .outerjoin(AffiliateLink, AffiliateLink.job_id == Job.id)
-                .where(
-                    Job.provider_id == provider_id,
-                    Job.is_active.is_(True),
-                    AffiliateLink.id.is_(None),
-                )
-                .limit(limit)
-            )
-        )
-
     # ------------------------------------------------------------------
     # Write methods
     # ------------------------------------------------------------------
@@ -555,57 +541,6 @@ class PromotionRepository:
             .values(is_active=False, deactivated_at=now)
         )
         return result.rowcount
-
-    def bulk_create_affiliate_links(
-        self, provider_id: int, job_ids: list[int]
-    ) -> None:
-        """Idempotently create one affiliate link for each job that lacks one.
-
-        Inserts are bounded and each collision retry uses a savepoint so a
-        short-hash uniqueness error does not invalidate the caller's outer
-        transaction. The caller remains responsible for committing.
-        """
-        unique_job_ids = list(dict.fromkeys(job_ids))
-        for start in range(0, len(unique_job_ids), AFFILIATE_LINK_BATCH_SIZE):
-            batch = unique_job_ids[start : start + AFFILIATE_LINK_BATCH_SIZE]
-
-            for attempt in range(MAX_SHORT_HASH_ATTEMPTS):
-                values = [
-                    {
-                        "job_id": job_id,
-                        "provider_id": provider_id,
-                        "short_hash": secrets.token_urlsafe(8),
-                        "created_by_admin_id": None,
-                    }
-                    for job_id in batch
-                ]
-                try:
-                    with self._session.begin_nested():
-                        self._session.execute(
-                            insert(AffiliateLink)
-                            .values(values)
-                            .on_conflict_do_nothing(
-                                index_elements=[AffiliateLink.job_id]
-                            )
-                        )
-                    break
-                except IntegrityError as error:
-                    if (
-                        not self._is_short_hash_collision(error)
-                        or attempt == MAX_SHORT_HASH_ATTEMPTS - 1
-                    ):
-                        raise
-
-    @staticmethod
-    def _is_short_hash_collision(error: IntegrityError) -> bool:
-        """Return whether PostgreSQL reported the short-hash unique index."""
-        original = error.orig
-        candidates = (original, getattr(original, "__cause__", None))
-        return any(
-            getattr(candidate, "constraint_name", None) == SHORT_HASH_CONSTRAINT
-            for candidate in candidates
-            if candidate is not None
-        ) or SHORT_HASH_CONSTRAINT in str(original)
 
     def finish_promotion(
         self,
@@ -795,17 +730,47 @@ class SitemapJob:
     last_imported_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class SitemapSite:
+    """An active site that gets its own sitemap set."""
+
+    id: int
+    slug: str
+    base_url: str
+    canonical_priority: int = 0
+
+
 class SitemapRepository:
     """Read-only canonical-job access for sitemap generation."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def list_active_jobs_after(self, *, after_id: int, limit: int) -> list[SitemapJob]:
-        """Return one ID-keyset page of active jobs in stable order."""
+    def list_active_sites(self) -> list[SitemapSite]:
+        """Return every active site in stable order."""
+        rows = self._session.execute(
+            select(Site.id, Site.slug, Site.base_url, Site.canonical_priority)
+            .where(Site.is_active.is_(True))
+            .order_by(Site.id)
+        )
+        return [SitemapSite(**row) for row in rows.mappings()]
+
+    def list_active_jobs_after(
+        self, *, site_id: int, canonical_priority: int, after_id: int, limit: int
+    ) -> list[SitemapJob]:
+        """Return one ID-keyset page of the active jobs this site owns.
+
+        Jobs shared with a higher-ranked site belong to that site's sitemap
+        only, so each URL is listed exactly once across all sites.
+        """
         rows = self._session.execute(
             select(Job.id, Job.slug, Job.last_imported_at)
-            .where(Job.is_active.is_(True), Job.id > after_id)
+            .where(
+                Job.is_active.is_(True),
+                Job.id > after_id,
+                exists().where(JobSite.job_id == Job.id, JobSite.site_id == site_id),
+                owned_by_site(site_id, canonical_priority),
+            )
             .order_by(Job.id)
             .limit(limit)
         )
@@ -817,3 +782,171 @@ class SitemapRepository:
             )
             for row in rows
         ]
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRoutingJob:
+    """The minimal job projection site routing evaluates."""
+
+    id: int
+    title: str | None
+    classification: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRoutingRuleRow:
+    """One active routing rule of an active site."""
+
+    id: int
+    site_id: int
+    provider_id: int | None
+    rule_type: str
+    pattern: str
+
+
+@dataclass(frozen=True, slots=True)
+class SitePreviewJob:
+    """The job projection a routing dry run evaluates."""
+
+    id: int
+    provider_id: int
+    title: str | None
+    classification: str | None
+    is_active: bool
+
+
+class SiteRoutingRepository:
+    """Data access for maintaining ``job_sites`` assignments."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_site_rules(self, site_id: int) -> list[SiteRoutingRuleRow]:
+        """Return the active rules of one site (site activity not checked)."""
+        rows = self._session.execute(
+            select(
+                SiteRoutingRule.id,
+                SiteRoutingRule.site_id,
+                SiteRoutingRule.provider_id,
+                SiteRoutingRule.rule_type,
+                SiteRoutingRule.pattern,
+            )
+            .where(
+                SiteRoutingRule.site_id == site_id,
+                SiteRoutingRule.is_active.is_(True),
+            )
+            .order_by(SiteRoutingRule.id)
+        )
+        return [SiteRoutingRuleRow(**row) for row in rows.mappings()]
+
+    def load_preview_jobs(self, *, chunk_size: int = 5000) -> list[SitePreviewJob]:
+        """Return the routing projection of every job of every provider."""
+        result = self._session.execute(
+            select(
+                Job.id, Job.provider_id, Job.title, Job.classification, Job.is_active
+            ).execution_options(yield_per=chunk_size)
+        )
+        return [SitePreviewJob(**row) for row in result.mappings()]
+
+    def load_site_job_ids(self, site_id: int) -> set[int]:
+        """Return ids of jobs currently assigned to one site."""
+        return set(
+            self._session.scalars(
+                select(JobSite.job_id).where(JobSite.site_id == site_id)
+            )
+        )
+
+    def list_provider_ids(self) -> list[int]:
+        """Return every provider id, active or not."""
+        return list(self._session.scalars(select(Provider.id).order_by(Provider.id)))
+
+    def list_active_site_ids(self) -> list[int]:
+        """Return ids of sites that are currently active."""
+        return list(
+            self._session.scalars(
+                select(Site.id).where(Site.is_active.is_(True)).order_by(Site.id)
+            )
+        )
+
+    def list_active_rules(self) -> list[SiteRoutingRuleRow]:
+        """Return active rules belonging to active sites."""
+        rows = self._session.execute(
+            select(
+                SiteRoutingRule.id,
+                SiteRoutingRule.site_id,
+                SiteRoutingRule.provider_id,
+                SiteRoutingRule.rule_type,
+                SiteRoutingRule.pattern,
+            )
+            .join(Site, Site.id == SiteRoutingRule.site_id)
+            .where(SiteRoutingRule.is_active.is_(True), Site.is_active.is_(True))
+            .order_by(SiteRoutingRule.id)
+        )
+        return [SiteRoutingRuleRow(**row) for row in rows.mappings()]
+
+    def load_provider_jobs(
+        self, provider_id: int, *, chunk_size: int = 5000
+    ) -> list[SiteRoutingJob]:
+        """Return the routing projection of every job of one provider.
+
+        Inactive (soft-deleted) jobs are included so job detail pages keep
+        their site scoping during the retention window.
+        """
+        result = self._session.execute(
+            select(Job.id, Job.title, Job.classification)
+            .where(Job.provider_id == provider_id)
+            .execution_options(yield_per=chunk_size)
+        )
+        return [SiteRoutingJob(**row) for row in result.mappings()]
+
+    def load_assignments(
+        self, provider_id: int, site_ids: list[int]
+    ) -> dict[tuple[int, int], int | None]:
+        """Return ``{(job_id, site_id): matched_rule_id}`` for one provider."""
+        if not site_ids:
+            return {}
+        rows = self._session.execute(
+            select(JobSite.job_id, JobSite.site_id, JobSite.matched_rule_id)
+            .join(Job, Job.id == JobSite.job_id)
+            .where(Job.provider_id == provider_id, JobSite.site_id.in_(site_ids))
+        )
+        return {(job_id, site_id): rule_id for job_id, site_id, rule_id in rows}
+
+    def upsert_assignments(
+        self, assignments: list[tuple[int, int, int]], *, batch_size: int = 5000
+    ) -> None:
+        """Insert or re-point ``(job_id, site_id, rule_id)`` assignments."""
+        for start in range(0, len(assignments), batch_size):
+            batch = assignments[start : start + batch_size]
+            statement = pg_insert(JobSite).values(
+                [
+                    {"job_id": job_id, "site_id": site_id, "matched_rule_id": rule_id}
+                    for job_id, site_id, rule_id in batch
+                ]
+            )
+            self._session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[JobSite.job_id, JobSite.site_id],
+                    set_={"matched_rule_id": statement.excluded.matched_rule_id},
+                )
+            )
+
+    def delete_assignments(
+        self, keys: list[tuple[int, int]], *, batch_size: int = 5000
+    ) -> None:
+        """Remove ``(job_id, site_id)`` assignments."""
+        for start in range(0, len(keys), batch_size):
+            batch = keys[start : start + batch_size]
+            self._session.execute(
+                delete(JobSite).where(
+                    tuple_(JobSite.job_id, JobSite.site_id).in_(batch)
+                )
+            )
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        self._session.commit()
+
+    def rollback(self) -> None:
+        """Roll back the current transaction."""
+        self._session.rollback()

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Job, SavedJob, User
 from app.db.public_job_repositories import JobSummaryRecord
+from app.db.site_queries import job_on_site
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,8 +68,14 @@ class SavedJobRepository:
         row = result.mappings().one_or_none()
         return None if row is None else UserProfileRecord(**row)
 
-    async def list_saved_jobs(self, user_id: UUID) -> list[JobSummaryRecord]:
-        """Return active saved jobs, most recently saved first."""
+    async def list_saved_jobs(
+        self, user_id: UUID, *, site_id: int
+    ) -> list[JobSummaryRecord]:
+        """Return the user's active saved jobs on one site, newest save first.
+
+        Bookmarks are stored hub-wide (one account across sites); each site
+        only shows the ones that belong to it.
+        """
         result = await self._session.execute(
             select(
                 Job.id,
@@ -92,6 +99,7 @@ class SavedJobRepository:
             .where(
                 SavedJob.user_id == user_id,
                 Job.is_active.is_(True),
+                job_on_site(site_id),
             )
             .order_by(SavedJob.saved_at.desc(), SavedJob.id.desc())
         )
@@ -101,12 +109,15 @@ class SavedJobRepository:
         self,
         user_id: UUID,
         job_id: int,
+        *,
+        site_id: int,
     ) -> SavedJobRecord | None:
-        """Idempotently save an active job, or return ``None`` if unavailable."""
+        """Idempotently save an active job of ``site_id``, or return ``None``."""
         active_job_id = await self._session.scalar(
             select(Job.id).where(
                 Job.id == job_id,
                 Job.is_active.is_(True),
+                job_on_site(site_id),
             )
         )
         if active_job_id is None:

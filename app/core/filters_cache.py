@@ -1,6 +1,7 @@
 """Redis-backed cache for the /api/v1/jobs/filters response.
 
-The cache key is versioned ("filters:v{version}"), where the version is a
+The cache key is versioned and scoped ("filters:v{version}:{scope}", scope
+being e.g. "site:3" so each site caches its own filters), where the version is a
 plain integer stored under "filters:version". Reads fetch the current
 version then that key; a hit skips the DB query entirely, a miss computes,
 stores, and returns. Invalidation never deletes a key -- it bumps the
@@ -27,8 +28,8 @@ logger = logging.getLogger(__name__)
 _VERSION_KEY = "filters:version"
 
 
-def _cache_key(version: int) -> str:
-    return f"filters:v{version}"
+def _cache_key(version: int, scope: str) -> str:
+    return f"filters:v{version}:{scope}"
 
 
 def _prefer_ipv4_loopback(storage_uri: str) -> str:
@@ -97,6 +98,8 @@ class FiltersCache:
     async def get_or_compute(
         self,
         compute: Callable[[], Awaitable[dict[str, Any]]],
+        *,
+        scope: str,
     ) -> dict[str, Any]:
         """Return the cached filters payload, computing and storing on a miss.
 
@@ -104,7 +107,7 @@ class FiltersCache:
         """
         try:
             version = await self._current_version()
-            cached = await self._client.get(_cache_key(version))
+            cached = await self._client.get(_cache_key(version, scope))
         except RedisError:
             self.logger.warning(
                 "Filters cache unavailable on read; computing directly",
@@ -116,17 +119,17 @@ class FiltersCache:
             return json.loads(cached)
 
         result = await compute()
-        await self._store(version, result)
+        await self._store(_cache_key(version, scope), result)
         return result
 
     async def _current_version(self) -> int:
         raw = await self._client.get(_VERSION_KEY)
         return int(raw) if raw is not None else 1
 
-    async def _store(self, version: int, data: dict[str, Any]) -> None:
+    async def _store(self, key: str, data: dict[str, Any]) -> None:
         try:
             await self._client.set(
-                _cache_key(version),
+                key,
                 json.dumps(data),
                 ex=self._ttl_seconds,
             )

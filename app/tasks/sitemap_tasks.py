@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 def generate_sitemaps_task() -> dict[str, object]:
     """Generate sitemap files and return a serializable manifest."""
     result = asdict(generate_sitemaps())
+    # The Celery result backend only carries JSON.
     result["generated_at"] = result["generated_at"].isoformat()
     logger.info("Sitemap task completed", extra=result)
     return result

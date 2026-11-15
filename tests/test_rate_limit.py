@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 from slowapi.errors import RateLimitExceeded
 
+from app.api.routers.sitemaps import get_site_by_slug
 from app.core.config import RateLimitSettings
 from app.core.rate_limit import (
     FailOpenLimiter,
@@ -19,6 +20,7 @@ from app.core.rate_limit import (
     limiter,
     rate_limit_exceeded_handler,
 )
+from app.db.site_repositories import SiteRecord
 from app.main import app
 
 
@@ -86,12 +88,18 @@ def test_crawler_and_liveness_routes_never_touch_rate_limit_storage(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    sitemap_index = tmp_path / "sitemap.xml"
-    sitemap_chunk = tmp_path / "sitemap-1.xml.gz"
-    sitemap_index.write_text("<sitemapindex />", encoding="utf-8")
-    sitemap_chunk.write_bytes(b"compressed sitemap")
-    monkeypatch.setenv("PUBLIC_SITE_BASE_URL", "https://jobs.example")
+    site_dir = tmp_path / "it-tech"
+    site_dir.mkdir()
+    (site_dir / "sitemap.xml").write_text("<sitemapindex />", encoding="utf-8")
+    (site_dir / "sitemap-1.xml.gz").write_bytes(b"compressed sitemap")
     monkeypatch.setenv("SITEMAP_OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_site_by_slug,
+        lambda: SiteRecord(
+            id=1, slug="it-tech", name="IT", base_url="https://jobs.example", config={}
+        ),
+    )
 
     redis_increment = Mock(side_effect=AssertionError("rate limit counter touched"))
     monkeypatch.setattr(limiter._storage, "incr", redis_increment)
@@ -99,9 +107,9 @@ def test_crawler_and_liveness_routes_never_touch_rate_limit_storage(
 
     responses = [
         client.get("/"),
-        client.get("/robots.txt"),
-        client.get("/sitemap.xml"),
-        client.get("/sitemap-1.xml.gz"),
+        client.get("/sites/it-tech/robots.txt"),
+        client.get("/sites/it-tech/sitemap.xml"),
+        client.get("/sites/it-tech/sitemap-1.xml.gz"),
     ]
 
     assert [response.status_code for response in responses] == [200, 200, 200, 200]

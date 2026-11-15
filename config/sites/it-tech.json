@@ -1,0 +1,646 @@
+{
+  "slug": "it-tech",
+  "name": "IT & Tech Jobs",
+  "site_key": "it-tech-local",
+  "base_url": "http://localhost:3000",
+  "config": {},
+  "rules": [
+    {
+      "rule_type": "include_classification",
+      "pattern": "I.T. & Communications",
+      "notes": "Jobg8 classification"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ai engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "android developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "application developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "applications developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "artificial intelligence"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "aws"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "azure"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "back end developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "back end engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "backend developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "backend engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "bi developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "big data"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "business intelligence"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "chief information officer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "chief technology officer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cio"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cloud architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cloud engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cloud infrastructure"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cloud security"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cto"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cyber security"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "cybersecurity"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "data analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "data architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "data engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "data scientist"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "data warehouse"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "database administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "database developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "database engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "dba"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "desktop support"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "devops"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "devsecops"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "embedded software"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "enterprise architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "erp analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "etl developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "firmware engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "front end developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "front end engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "frontend developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "frontend engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "full stack"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "fullstack"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "game developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "gcp"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "help desk"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "helpdesk"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "information security"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "information technology"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "infrastructure engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ios developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it consultant"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it director"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it manager"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it operations"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it project manager"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it security"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it specialist"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it support"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "it technician"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "java developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "javascript"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "kubernetes"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "linux administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "machine learning"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ml engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "mlops"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "mobile developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "net developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "network administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "network analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "network architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "network engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "network technician"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "node developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "penetration tester"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "platform engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "power bi"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "programmer analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "python developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "qa automation"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "qa engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "react developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "salesforce"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "sap consultant"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "scrum master"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "sdet"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "security analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "security engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "service desk"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "servicenow"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "site reliability"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "soc analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software development engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software qa"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "software test"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "solutions architect"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "sql developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "sre"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "sysadmin"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "system administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "systems administrator"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "systems analyst"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "tableau"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "technical support engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "telecom engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "telecommunications engineer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "test automation"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ui developer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ui ux"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "ux designer"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "voip"
+    },
+    {
+      "rule_type": "include_title",
+      "pattern": "web developer"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "aerospace"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "cdl"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "civil engineer"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "cnc"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "dental"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "dentist"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "driver"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "electrician"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "forklift"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "hvac"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "lpn"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "mechanical"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "nurse"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "nursing"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "pharmacist"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "physician"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "plumber"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "rn"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "structural"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "therapist"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "truck"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "veterinar"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "warehouse"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "wastewater"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "water"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "radar"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "civil"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "transportation engineer"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "pipeline integrity"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "roadway"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "bridge"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "welder"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "welding"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "chemical"
+    },
+    {
+      "rule_type": "exclude_title",
+      "pattern": "process engineer"
+    }
+  ]
+}

@@ -15,6 +15,7 @@ EXPECTED_TASK_NAMES = frozenset(
         "app.tasks.health.ping",
         "app.tasks.import_tasks.run_provider_import",
         "app.tasks.scheduler_tasks.dispatch_provider_imports",
+        "app.tasks.site_routing_tasks.route_all_sites",
         "app.tasks.sitemap_tasks.generate_sitemaps",
     }
 )

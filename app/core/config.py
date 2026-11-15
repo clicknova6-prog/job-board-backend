@@ -71,7 +71,6 @@ class RateLimitSettings:
     admin_auth_refresh: str
     admin_api: str
     admin_import_trigger: str
-    affiliate_redirect: str
 
     @classmethod
     def from_environment(cls) -> RateLimitSettings:
@@ -109,10 +108,6 @@ class RateLimitSettings:
             admin_import_trigger=os.environ.get(
                 "RATE_LIMIT_ADMIN_IMPORT_TRIGGER",
                 "5/minute",
-            ),
-            affiliate_redirect=os.environ.get(
-                "RATE_LIMIT_AFFILIATE_REDIRECT",
-                "600/minute",
             ),
         )
 
@@ -153,29 +148,25 @@ class FiltersCacheSettings:
 
 @dataclass(frozen=True, slots=True)
 class SitemapSettings:
-    """Configuration used to generate and serve sitemap files."""
+    """Configuration used to generate and serve sitemap files.
+
+    Public URLs come from each site's ``sites.base_url``; files are written to
+    ``output_dir/<site slug>/``.
+    """
 
     output_dir: Path
-    public_site_base_url: str
     chunk_size: int
     regen_interval_minutes: int
 
     @classmethod
     def from_environment(cls) -> SitemapSettings:
-        """Load sitemap settings, requiring an explicit public site URL."""
-        base_url = os.environ.get("PUBLIC_SITE_BASE_URL", "").strip().rstrip("/")
-        if not base_url:
-            raise RuntimeError("PUBLIC_SITE_BASE_URL must be configured")
-        if not base_url.startswith(("http://", "https://")):
-            raise RuntimeError("PUBLIC_SITE_BASE_URL must be an absolute HTTP(S) URL")
-
+        """Load sitemap settings from the environment."""
         chunk_size = _positive_int("SITEMAP_CHUNK_SIZE", 50_000)
         if chunk_size > 50_000:
             raise RuntimeError("SITEMAP_CHUNK_SIZE cannot exceed 50000")
 
         return cls(
             output_dir=Path(os.environ.get("SITEMAP_OUTPUT_DIR", "storage/sitemaps")),
-            public_site_base_url=base_url,
             chunk_size=chunk_size,
             regen_interval_minutes=_positive_int("SITEMAP_REGEN_INTERVAL_MINUTES", 240),
         )

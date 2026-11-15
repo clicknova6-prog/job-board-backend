@@ -31,7 +31,6 @@ class JobSummary(BaseModel):
     country_name: str | None
     location: str | None
     apply_url: str = Field(serialization_alias="job_url")
-    redirect_url: str | None = None
     first_imported_at: datetime = Field(serialization_alias="posted_date")
     last_imported_at: datetime
     is_active: bool = Field(exclude=True)
@@ -59,6 +58,9 @@ class JobDetail(JobSummary):
     source_updated_at: datetime | None = Field(
         default=None,
         validation_alias="content_updated_at",
+    )
+    canonical_url: str = Field(
+        description="Absolute URL of this job on the calling site (rel=canonical)."
     )
     structured_data: dict[str, Any] | None
 

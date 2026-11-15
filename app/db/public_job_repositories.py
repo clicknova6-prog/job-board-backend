@@ -15,7 +15,12 @@ from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.db.models import AffiliateLink, Job
+from app.db.models import Job
+from app.db.site_queries import (
+    canonical_base_url_for_job,
+    canonical_site_id_for_job,
+    job_on_site,
+)
 
 # Must match the regconfig baked into the jobs.search_vector generated column
 # (see alembic revision b3c91f4d27ae); a mismatch silently returns no rows.
@@ -42,7 +47,6 @@ class JobSummaryRecord:
     remote_status_source: str | None
     experience_level: str | None
     experience_level_source: str | None
-    redirect_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +78,8 @@ class JobDetailRecord:
     experience_level: str | None
     experience_level_source: str | None
     is_active: bool
-    redirect_url: str | None = None
+    canonical_site_id: int | None = None
+    canonical_base_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,34 +120,40 @@ class JobKeysetCursor:
 
 
 class PublicJobRepository:
-    """Reads publishable jobs for anonymous catalogue browsing."""
+    """Reads publishable jobs for anonymous catalogue browsing.
+
+    Every read is scoped to one site: a job is visible on a site only when
+    site routing assigned it there (a ``job_sites`` row).
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_filter_metadata(self) -> JobFilterMetadata:
-        """Return populated filter values and active-job counts."""
+    async def get_filter_metadata(self, *, site_id: int) -> JobFilterMetadata:
+        """Return populated filter values and active-job counts for one site."""
         return JobFilterMetadata(
-            classifications=await self._get_filter_options(Job.classification),
-            employment_types=await self._get_filter_options(Job.employment_type),
-            country_names=await self._get_filter_options(Job.country_name),
+            classifications=await self._get_filter_options(Job.classification, site_id),
+            employment_types=await self._get_filter_options(
+                Job.employment_type, site_id
+            ),
+            country_names=await self._get_filter_options(Job.country_name, site_id),
         )
 
     async def _get_filter_options(
-        self, column: InstrumentedAttribute[str | None]
+        self, column: InstrumentedAttribute[str | None], site_id: int
     ) -> list[FilterOption]:
         count = func.count()
         statement = (
             select(column.label("value"), count.label("count"))
-            .where(Job.is_active.is_(True), column.is_not(None))
+            .where(Job.is_active.is_(True), column.is_not(None), job_on_site(site_id))
             .group_by(column)
             .order_by(count.desc(), column.asc())
         )
         result = await self._session.execute(statement)
         return [FilterOption(**row) for row in result.mappings()]
 
-    async def get_by_slug(self, slug: str) -> JobDetailRecord | None:
-        """Return one job by public slug, including soft-deleted jobs."""
+    async def get_by_slug(self, slug: str, *, site_id: int) -> JobDetailRecord | None:
+        """Return one job of ``site_id`` by public slug, including soft-deleted."""
         statement = select(
             Job.id,
             Job.slug,
@@ -154,7 +165,6 @@ class PublicJobRepository:
             Job.area,
             Job.postal_code,
             Job.apply_url,
-            AffiliateLink.short_hash,
             Job.last_imported_at,
             Job.description,
             Job.advertiser_name,
@@ -170,24 +180,20 @@ class PublicJobRepository:
             Job.experience_level,
             Job.experience_level_source,
             Job.is_active,
-        ).outerjoin(
-            AffiliateLink, AffiliateLink.job_id == Job.id
-        ).where(Job.slug == slug)
+            canonical_site_id_for_job().label("canonical_site_id"),
+            canonical_base_url_for_job().label("canonical_base_url"),
+        ).where(Job.slug == slug, job_on_site(site_id))
 
         result = await self._session.execute(statement)
         row = result.mappings().one_or_none()
         if row is None:
             return None
-        values = dict(row)
-        short_hash = values.pop("short_hash")
-        values["redirect_url"] = (
-            f"/r/{short_hash}" if short_hash is not None else None
-        )
-        return JobDetailRecord(**values)
+        return JobDetailRecord(**row)
 
     async def search(
         self,
         *,
+        site_id: int,
         filters: JobSearchFilters,
         descending: bool,
         limit: int,
@@ -209,7 +215,6 @@ class PublicJobRepository:
                 Job.country_name,
                 Job.location,
                 Job.apply_url,
-                AffiliateLink.short_hash,
                 Job.first_imported_at,
                 Job.last_imported_at,
                 Job.is_active,
@@ -217,9 +222,7 @@ class PublicJobRepository:
                 Job.remote_status_source,
                 Job.experience_level,
                 Job.experience_level_source,
-            )
-            .outerjoin(AffiliateLink, AffiliateLink.job_id == Job.id)
-            .where(Job.is_active.is_(True)),
+            ).where(Job.is_active.is_(True), job_on_site(site_id)),
             filters,
         )
 
@@ -245,15 +248,7 @@ class PublicJobRepository:
         statement = statement.limit(limit)
 
         result = await self._session.execute(statement)
-        records = []
-        for row in result.mappings():
-            values = dict(row)
-            short_hash = values.pop("short_hash")
-            values["redirect_url"] = (
-                f"/r/{short_hash}" if short_hash is not None else None
-            )
-            records.append(JobSummaryRecord(**values))
-        return records
+        return [JobSummaryRecord(**row) for row in result.mappings()]
 
     @staticmethod
     def _apply_filters(statement: Select, filters: JobSearchFilters) -> Select:

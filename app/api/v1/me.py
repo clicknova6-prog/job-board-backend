@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.site_dependencies import CurrentSite
 from app.auth.dependencies import get_current_user
 from app.auth.schemas import CurrentUser
 from app.db.async_session import get_async_session
@@ -59,9 +60,12 @@ async def update_me(
 async def list_saved_jobs(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    site: CurrentSite,
 ) -> list[JobSummaryRecord]:
-    """Return the authenticated job seeker's active saved jobs."""
-    return await SavedJobRepository(session).list_saved_jobs(current_user.id)
+    """Return the job seeker's active saved jobs on the calling site."""
+    return await SavedJobRepository(session).list_saved_jobs(
+        current_user.id, site_id=site.id
+    )
 
 
 @router.post("/saved-jobs/{job_id}", response_model=SavedJobRead)
@@ -69,9 +73,12 @@ async def save_job(
     job_id: int,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    site: CurrentSite,
 ) -> SavedJobRecord:
-    """Idempotently save one active job for the authenticated job seeker."""
-    saved_job = await SavedJobRepository(session).save_job(current_user.id, job_id)
+    """Idempotently save one active job of the calling site."""
+    saved_job = await SavedJobRepository(session).save_job(
+        current_user.id, job_id, site_id=site.id
+    )
     if saved_job is None:
         raise _job_not_found()
     await session.commit()

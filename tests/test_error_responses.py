@@ -1,6 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api.site_dependencies import get_current_site
+from app.db.site_repositories import SiteRecord
 from app.main import app, unhandled_exception_handler
 
 
@@ -18,7 +20,13 @@ def test_unknown_route_uses_error_envelope() -> None:
 
 
 def test_request_validation_uses_error_envelope_with_field_details() -> None:
-    response = TestClient(app).get("/api/v1/jobs", params={"limit": 0})
+    app.dependency_overrides[get_current_site] = lambda: SiteRecord(
+        id=1, slug="s", name="S", base_url="https://s.test", config={}
+    )
+    try:
+        response = TestClient(app).get("/api/v1/jobs", params={"limit": 0})
+    finally:
+        app.dependency_overrides.pop(get_current_site, None)
 
     assert response.status_code == 422
     assert response.json() == {

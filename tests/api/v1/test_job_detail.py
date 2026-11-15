@@ -19,8 +19,9 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.db.async_session import get_async_session
-from app.db.models import AffiliateLink, Job, Provider
+from app.db.models import Job, Provider
 from app.main import app
+from tests.api.v1.site_seed import SITE_HEADERS, TEST_SITE_BASE_URL, seed_test_site
 
 BASE_TIME = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 EXPECTED_KEYS = {
@@ -33,7 +34,6 @@ EXPECTED_KEYS = {
     "country_name",
     "location",
     "job_url",
-    "redirect_url",
     "posted_date",
     "last_imported_at",
     "status",
@@ -48,6 +48,7 @@ EXPECTED_KEYS = {
     "salary_period",
     "created_at",
     "source_updated_at",
+    "canonical_url",
     "structured_data",
 }
 
@@ -94,7 +95,6 @@ def _job_values(*, index: int, is_active: bool = True) -> dict[str, Any]:
 async def _api(
     database_url: str,
     rows: Sequence[dict[str, Any]],
-    affiliate_links: dict[str, str] | None = None,
 ) -> AsyncIterator[httpx.AsyncClient]:
     engine = create_async_engine(_async_url(database_url), poolclass=NullPool)
     session_factory = async_sessionmaker(
@@ -117,30 +117,17 @@ async def _api(
                         .returning(Provider.id)
                     )
                 ).scalar_one()
+            job_ids: list[int] = []
             if rows:
-                await setup_session.execute(
-                    insert(Job),
-                    [dict(row, provider_id=provider_id) for row in rows],
-                )
-            if affiliate_links:
-                job_rows = (
-                    await setup_session.execute(
-                        select(Job.id, Job.slug).where(
-                            Job.slug.in_(affiliate_links)
+                job_ids = list(
+                    (
+                        await setup_session.execute(
+                            insert(Job).returning(Job.id),
+                            [dict(row, provider_id=provider_id) for row in rows],
                         )
-                    )
-                ).all()
-                await setup_session.execute(
-                    insert(AffiliateLink),
-                    [
-                        {
-                            "job_id": job_id,
-                            "provider_id": provider_id,
-                            "short_hash": affiliate_links[slug],
-                        }
-                        for job_id, slug in job_rows
-                    ],
+                    ).scalars()
                 )
+            await seed_test_site(setup_session, job_ids)
             await setup_session.commit()
 
         async def override_session() -> AsyncIterator[AsyncSession]:
@@ -150,7 +137,7 @@ async def _api(
         app.dependency_overrides[get_async_session] = override_session
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
+            transport=transport, base_url="http://testserver", headers=SITE_HEADERS
         ) as client:
             yield client
     finally:
@@ -177,10 +164,9 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
             assert body["company"] == row["advertiser_name"]
             assert body["category"] == row["classification"]
             assert body["job_url"] == row["apply_url"]
-            assert body["redirect_url"] is None
-            assert datetime.fromisoformat(body["posted_date"]) == row[
-                "first_imported_at"
-            ]
+            assert (
+                datetime.fromisoformat(body["posted_date"]) == row["first_imported_at"]
+            )
             assert body["remote_status"] == row["remote_status"]
             assert body["remote_status_source"] == row["remote_status_source"]
             assert body["experience_level"] == row["experience_level"]
@@ -225,27 +211,12 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
                     "unitText": "YEAR",
                 },
             }
-            assert structured_data["directApply"] is True
-            assert structured_data["url"] == row["apply_url"]
+            assert structured_data["directApply"] is False
+            assert body["canonical_url"] == (
+                f"{TEST_SITE_BASE_URL}/job/detail-test-job-1"
+            )
+            assert structured_data["url"] == body["canonical_url"]
             assert "validThrough" not in structured_data
-
-    _run(run)
-
-
-def test_job_detail_serializes_affiliate_redirect_url(
-    test_database_url: str,
-) -> None:
-    row = _job_values(index=8)
-
-    async def run() -> None:
-        async with _api(
-            test_database_url,
-            [row],
-            affiliate_links={"detail-test-job-8": "detail-hash"},
-        ) as client:
-            response = await client.get("/api/v1/jobs/detail-test-job-8")
-            assert response.status_code == 200
-            assert response.json()["redirect_url"] == "/r/detail-hash"
 
     _run(run)
 
