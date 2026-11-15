@@ -15,6 +15,11 @@ from sqlalchemy.sql.elements import ColumnElement
 from app.db.models import Job, JobSite, Site
 
 
+def job_on_site(site_id: int) -> ColumnElement[bool]:
+    """Predicate: the job is assigned to ``site_id`` (via ``job_sites``)."""
+    return exists().where(JobSite.job_id == Job.id, JobSite.site_id == site_id)
+
+
 def canonical_site_id_for_job() -> ColumnElement[int | None]:
     """Correlated scalar subquery: id of the job's canonical site (or NULL)."""
     return (

@@ -24,6 +24,7 @@ from app.auth.schemas import CurrentUser
 from app.db.async_session import get_async_session
 from app.db.models import Job, OAuthProvider, Provider, SavedJob, User
 from app.main import app
+from tests.api.v1.site_seed import SITE_HEADERS, seed_test_site
 
 BASE_TIME = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -75,6 +76,7 @@ async def _api(
     jobs: Sequence[dict[str, Any]] = (),
     saved_jobs: Sequence[tuple[UUID, str, datetime]] = (),
     current_user_id: UUID | None = None,
+    off_site_jobs: Sequence[str] = (),
 ) -> AsyncIterator[
     tuple[
         httpx.AsyncClient,
@@ -121,6 +123,14 @@ async def _api(
                     )
                 ).scalar_one()
                 job_ids[job["source_job_id"]] = job_id
+            await seed_test_site(
+                setup_session,
+                [
+                    job_id
+                    for source_job_id, job_id in job_ids.items()
+                    if source_job_id not in off_site_jobs
+                ],
+            )
             for user_id, source_job_id, saved_at in saved_jobs:
                 await setup_session.execute(
                     insert(SavedJob).values(
@@ -147,6 +157,7 @@ async def _api(
         async with httpx.AsyncClient(
             transport=transport,
             base_url="http://testserver",
+            headers=SITE_HEADERS,
         ) as client:
             yield client, session_factory, job_ids
     finally:
@@ -407,5 +418,36 @@ def test_saving_an_inactive_job_returns_404(test_database_url: str) -> None:
                     select(func.count()).select_from(SavedJob)
                 )
             assert saved_count == 0
+
+    _run(run)
+
+
+def test_saved_jobs_are_scoped_to_the_calling_site(test_database_url: str) -> None:
+    user_id = uuid4()
+    on_site, off_site = _job_values(index=1), _job_values(index=2)
+
+    async def run() -> None:
+        async with _api(
+            test_database_url,
+            users=[_user_values(user_id=user_id, index=1)],
+            jobs=[on_site, off_site],
+            saved_jobs=[
+                (user_id, on_site["source_job_id"], BASE_TIME),
+                (user_id, off_site["source_job_id"], BASE_TIME),
+            ],
+            current_user_id=user_id,
+            off_site_jobs=[off_site["source_job_id"]],
+        ) as (client, _, job_ids):
+            listed = await client.get("/api/v1/me/saved-jobs")
+            assert [item["slug"] for item in listed.json()] == ["saved-job-1"]
+
+            other_job = job_ids[off_site["source_job_id"]]
+            response = await client.post(f"/api/v1/me/saved-jobs/{other_job}")
+            assert response.status_code == 404
+
+            no_key = await client.get(
+                "/api/v1/me/saved-jobs", headers={"X-Site-Key": ""}
+            )
+            assert no_key.status_code == 400
 
     _run(run)
