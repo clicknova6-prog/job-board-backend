@@ -20,6 +20,7 @@ from sqlalchemy.pool import NullPool
 from app.db.async_session import get_async_session
 from app.db.models import Job, Provider
 from app.main import app
+from tests.api.v1.site_seed import SITE_HEADERS, seed_test_site
 
 BASE_TIME = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -117,11 +118,17 @@ async def _api(
                         .returning(Provider.id)
                     )
                 ).scalar_one()
+            job_ids: list[int] = []
             if rows:
-                await setup_session.execute(
-                    insert(Job),
-                    [dict(row, provider_id=provider_id) for row in rows],
+                job_ids = list(
+                    (
+                        await setup_session.execute(
+                            insert(Job).returning(Job.id),
+                            [dict(row, provider_id=provider_id) for row in rows],
+                        )
+                    ).scalars()
                 )
+            await seed_test_site(setup_session, job_ids)
             await setup_session.commit()
 
         async def override_session() -> AsyncIterator[AsyncSession]:
@@ -131,7 +138,7 @@ async def _api(
         app.dependency_overrides[get_async_session] = override_session
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
+            transport=transport, base_url="http://testserver", headers=SITE_HEADERS
         ) as client:
             yield client
     finally:

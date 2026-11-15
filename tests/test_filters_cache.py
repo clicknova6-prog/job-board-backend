@@ -66,25 +66,25 @@ def test_cache_miss_computes_stores_and_returns_the_result() -> None:
         return_value={"classifications": [{"value": "Eng", "count": 1}]}
     )
 
-    result = _run(cache.get_or_compute(compute))
+    result = _run(cache.get_or_compute(compute, scope="site:1"))
 
     assert result == {"classifications": [{"value": "Eng", "count": 1}]}
     compute.assert_awaited_once()
     assert (
-        client.data["filters:v1"]
+        client.data["filters:v1:site:1"]
         == '{"classifications": [{"value": "Eng", "count": 1}]}'
     )
 
 
 def test_cache_hit_returns_without_calling_compute() -> None:
     client = _StubRedis()
-    client.data["filters:v1"] = '{"classifications": []}'
+    client.data["filters:v1:site:1"] = '{"classifications": []}'
     cache = FiltersCache(client, ttl_seconds=3600)
     compute = AsyncMock(
         side_effect=AssertionError("DB query should not run on a cache hit")
     )
 
-    result = _run(cache.get_or_compute(compute))
+    result = _run(cache.get_or_compute(compute, scope="site:1"))
 
     assert result == {"classifications": []}
     compute.assert_not_awaited()
@@ -102,7 +102,7 @@ def test_version_bump_invalidates_the_previous_versions_cached_data() -> None:
     first_compute = AsyncMock(
         return_value={"classifications": [{"value": "Old", "count": 1}]}
     )
-    first = _run(cache.get_or_compute(first_compute))
+    first = _run(cache.get_or_compute(first_compute, scope="site:1"))
     assert first == {"classifications": [{"value": "Old", "count": 1}]}
 
     invalidator.bump_version()
@@ -110,13 +110,13 @@ def test_version_bump_invalidates_the_previous_versions_cached_data() -> None:
     second_compute = AsyncMock(
         return_value={"classifications": [{"value": "New", "count": 2}]}
     )
-    second = _run(cache.get_or_compute(second_compute))
+    second = _run(cache.get_or_compute(second_compute, scope="site:1"))
 
     assert second == {"classifications": [{"value": "New", "count": 2}]}
     second_compute.assert_awaited_once()
     # The stale v1 entry is left in place for its TTL, not deleted.
     assert (
-        client.data["filters:v1"]
+        client.data["filters:v1:site:1"]
         == '{"classifications": [{"value": "Old", "count": 1}]}'
     )
 
@@ -140,7 +140,7 @@ def test_read_fails_open_when_redis_is_unreachable(
     compute = AsyncMock(return_value={"classifications": []})
 
     with caplog.at_level(logging.WARNING, logger="app.core.filters_cache"):
-        result = _run(cache.get_or_compute(compute))
+        result = _run(cache.get_or_compute(compute, scope="site:1"))
 
     assert result == {"classifications": []}
     compute.assert_awaited_once()
@@ -157,7 +157,7 @@ def test_write_is_fail_safe_when_redis_is_unreachable(
     compute = AsyncMock(return_value={"classifications": []})
 
     with caplog.at_level(logging.WARNING, logger="app.core.filters_cache"):
-        result = _run(cache.get_or_compute(compute))
+        result = _run(cache.get_or_compute(compute, scope="site:1"))
 
     assert result == {"classifications": []}
     assert "Failed to write filters cache; continuing uncached" in caplog.text
@@ -177,3 +177,17 @@ def test_bump_version_is_fail_safe_when_redis_is_unreachable(
         "Failed to bump filters cache version; stale filters may be served"
         in caplog.text
     )
+
+
+def test_scopes_are_cached_independently() -> None:
+    client = _StubRedis()
+    cache = FiltersCache(client, ttl_seconds=60)
+
+    first = _run(cache.get_or_compute(AsyncMock(return_value={"s": 1}), scope="site:1"))
+    second = _run(
+        cache.get_or_compute(AsyncMock(return_value={"s": 2}), scope="site:2")
+    )
+
+    assert first == {"s": 1}
+    assert second == {"s": 2}
+    assert set(client.data) == {"filters:v1:site:1", "filters:v1:site:2"}

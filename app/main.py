@@ -3,7 +3,6 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -19,17 +18,19 @@ from app.auth.router import router as auth_router
 from app.core.config import CORS_ALLOWED_ORIGINS
 from app.core.errors import error_code, error_content
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.site_cors import SiteAwareCORSMiddleware, site_origin_registry
 
 logger = logging.getLogger(__name__)
 
 
 app = FastAPI(title="Job Board Backend")
 app.add_middleware(
-    CORSMiddleware,
+    SiteAwareCORSMiddleware,
+    registry=site_origin_registry,
     allow_origins=CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Site-Key"],
 )
 app.state.limiter = limiter
 

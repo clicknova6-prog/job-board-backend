@@ -11,11 +11,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Select, func, select, tuple_
+from sqlalchemy import Select, exists, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.db.models import Job
+from app.db.models import Job, JobSite
 
 # Must match the regconfig baked into the jobs.search_vector generated column
 # (see alembic revision b3c91f4d27ae); a mismatch silently returns no rows.
@@ -112,35 +112,46 @@ class JobKeysetCursor:
     served_count: int
 
 
+def _on_site(site_id: int):
+    """Predicate: the job is assigned to ``site_id`` (via ``job_sites``)."""
+    return exists().where(JobSite.job_id == Job.id, JobSite.site_id == site_id)
+
+
 class PublicJobRepository:
-    """Reads publishable jobs for anonymous catalogue browsing."""
+    """Reads publishable jobs for anonymous catalogue browsing.
+
+    Every read is scoped to one site: a job is visible on a site only when
+    site routing assigned it there (a ``job_sites`` row).
+    """
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def get_filter_metadata(self) -> JobFilterMetadata:
-        """Return populated filter values and active-job counts."""
+    async def get_filter_metadata(self, *, site_id: int) -> JobFilterMetadata:
+        """Return populated filter values and active-job counts for one site."""
         return JobFilterMetadata(
-            classifications=await self._get_filter_options(Job.classification),
-            employment_types=await self._get_filter_options(Job.employment_type),
-            country_names=await self._get_filter_options(Job.country_name),
+            classifications=await self._get_filter_options(Job.classification, site_id),
+            employment_types=await self._get_filter_options(
+                Job.employment_type, site_id
+            ),
+            country_names=await self._get_filter_options(Job.country_name, site_id),
         )
 
     async def _get_filter_options(
-        self, column: InstrumentedAttribute[str | None]
+        self, column: InstrumentedAttribute[str | None], site_id: int
     ) -> list[FilterOption]:
         count = func.count()
         statement = (
             select(column.label("value"), count.label("count"))
-            .where(Job.is_active.is_(True), column.is_not(None))
+            .where(Job.is_active.is_(True), column.is_not(None), _on_site(site_id))
             .group_by(column)
             .order_by(count.desc(), column.asc())
         )
         result = await self._session.execute(statement)
         return [FilterOption(**row) for row in result.mappings()]
 
-    async def get_by_slug(self, slug: str) -> JobDetailRecord | None:
-        """Return one job by public slug, including soft-deleted jobs."""
+    async def get_by_slug(self, slug: str, *, site_id: int) -> JobDetailRecord | None:
+        """Return one job of ``site_id`` by public slug, including soft-deleted."""
         statement = select(
             Job.id,
             Job.slug,
@@ -167,7 +178,7 @@ class PublicJobRepository:
             Job.experience_level,
             Job.experience_level_source,
             Job.is_active,
-        ).where(Job.slug == slug)
+        ).where(Job.slug == slug, _on_site(site_id))
 
         result = await self._session.execute(statement)
         row = result.mappings().one_or_none()
@@ -178,6 +189,7 @@ class PublicJobRepository:
     async def search(
         self,
         *,
+        site_id: int,
         filters: JobSearchFilters,
         descending: bool,
         limit: int,
@@ -206,7 +218,7 @@ class PublicJobRepository:
                 Job.remote_status_source,
                 Job.experience_level,
                 Job.experience_level_source,
-            ).where(Job.is_active.is_(True)),
+            ).where(Job.is_active.is_(True), _on_site(site_id)),
             filters,
         )
 
