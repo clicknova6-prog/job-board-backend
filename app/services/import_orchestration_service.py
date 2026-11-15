@@ -14,12 +14,14 @@ from time import perf_counter
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.core.filters_cache import filters_cache_invalidator
 from app.db.repositories import PromotionRepository
 from app.db.session import SessionLocal
 from app.imports.downloader import DownloadService
 from app.imports.exceptions import TransientImportError
 from app.imports.importer import ImportService
 from app.imports.promotion import PromotionService
+from app.services.site_routing_service import SiteRoutingService
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,7 @@ class ImportOrchestrationService:
         }
 
         if status == "completed":
+            result["site_routing"] = self._route_sites()
             logger.info("Provider import task completed", extra=self._log_context())
         else:
             logger.error(
@@ -110,6 +113,20 @@ class ImportOrchestrationService:
                 extra=self._log_context(),
             )
         return result
+
+    def _route_sites(self) -> str:
+        """Refresh site assignments; never let a routing failure fail the import."""
+        try:
+            SiteRoutingService().route_provider(self._provider_id)
+        except Exception:
+            logger.exception(
+                "Site routing failed after a completed import; previous "
+                "assignments kept",
+                extra=self._log_context(),
+            )
+            return "failed"
+        filters_cache_invalidator.bump_version()
+        return "completed"
 
     def _reconciled_run_status(
         self,

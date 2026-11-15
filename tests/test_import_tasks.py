@@ -132,12 +132,17 @@ def _wire(
     download_service = MagicMock(name="DownloadService")
     download_service.return_value.download.return_value = feed
 
+    site_routing_service = Mock(name="SiteRoutingService")
+    filters_cache_invalidator = Mock(name="filters_cache_invalidator")
+
     module = import_orchestration_service
     monkeypatch.setattr(module, "SessionLocal", lambda: session)
     monkeypatch.setattr(module, "PromotionRepository", repository)
     monkeypatch.setattr(module, "ImportService", import_service)
     monkeypatch.setattr(module, "PromotionService", promotion_service)
     monkeypatch.setattr(module, "DownloadService", download_service)
+    monkeypatch.setattr(module, "SiteRoutingService", site_routing_service)
+    monkeypatch.setattr(module, "filters_cache_invalidator", filters_cache_invalidator)
 
     return SimpleNamespace(
         session=session,
@@ -146,6 +151,8 @@ def _wire(
         import_service=import_service,
         promotion_service=promotion_service,
         download_service=download_service,
+        site_routing_service=site_routing_service,
+        filters_cache_invalidator=filters_cache_invalidator,
     )
 
 
@@ -200,7 +207,38 @@ def test_successful_run_calls_each_service_with_the_expected_arguments(
         "updated_jobs": 2,
         "unchanged_jobs": 4,
         "deactivated_jobs": 1,
+        "site_routing": "completed",
     }
+    wiring.site_routing_service.return_value.route_provider.assert_called_once_with(
+        PROVIDER_ID
+    )
+    wiring.filters_cache_invalidator.bump_version.assert_called_once_with()
+
+
+def test_site_routing_failure_does_not_fail_a_completed_import(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wiring = _wire(monkeypatch)
+    wiring.site_routing_service.return_value.route_provider.side_effect = RuntimeError(
+        "routing broke"
+    )
+
+    result = _run_task().result
+
+    assert result["status"] == "completed"
+    assert result["site_routing"] == "failed"
+    wiring.filters_cache_invalidator.bump_version.assert_not_called()
+
+
+def test_failed_import_run_skips_site_routing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    wiring = _wire(monkeypatch, run=SimpleNamespace(id=RUN_ID, status="failed"))
+
+    result = _run_task().result
+
+    assert "site_routing" not in result
+    wiring.site_routing_service.assert_not_called()
 
 
 def test_successful_run_releases_the_feed_and_the_session(

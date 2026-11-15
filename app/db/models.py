@@ -478,6 +478,124 @@ class Job(Base):
     )
 
 
+class Site(Base):
+    """A public niche job board served by this hub (e.g. IT & Tech, Medical)."""
+
+    __tablename__ = "sites"
+    __table_args__ = (
+        CheckConstraint(
+            "slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'", name="sites_slug_format_check"
+        ),
+        {"comment": "Niche job board sites served from the shared job hub."},
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    site_key: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        unique=True,
+        comment="Public identifier sent by the site's frontend as X-Site-Key. Not a secret.",
+    )
+    base_url: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Canonical public origin, e.g. https://example.com",
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
+        comment="Site-specific settings (branding, CORS origins, SEO options).",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    routing_rules: Mapped[list[SiteRoutingRule]] = relationship(
+        back_populates="site", cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class SiteRoutingRule(Base):
+    """One admin-editable rule deciding which jobs belong to a site.
+
+    Evaluation order per job and site: any matching ``exclude_title`` rule
+    removes the job; otherwise a matching ``include_classification`` or
+    ``include_title`` rule assigns it. ``provider_id`` NULL means the rule
+    applies to every provider.
+    """
+
+    __tablename__ = "site_routing_rules"
+    __table_args__ = (
+        CheckConstraint(
+            "rule_type IN ('include_classification', 'include_title', 'exclude_title')",
+            name="site_routing_rules_rule_type_check",
+        ),
+        CheckConstraint(
+            "length(btrim(pattern)) > 0",
+            name="site_routing_rules_pattern_not_blank_check",
+        ),
+        Index(
+            "uq_site_routing_rules_site_provider_type_pattern",
+            "site_id",
+            text("coalesce(provider_id, 0)"),
+            "rule_type",
+            text("lower(pattern)"),
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    site_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("sites.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("providers.id", ondelete="CASCADE")
+    )
+    rule_type: Mapped[str] = mapped_column(Text, nullable=False)
+    pattern: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    site: Mapped[Site] = relationship(back_populates="routing_rules")
+
+
+class JobSite(Base):
+    """Assignment of one job to one site, with the rule that caused it."""
+
+    __tablename__ = "job_sites"
+    __table_args__ = (
+        Index("ix_job_sites_site_id_job_id", "site_id", "job_id"),
+        {"comment": "Many-to-many job to site assignments maintained by site routing."},
+    )
+
+    job_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("jobs.id", ondelete="CASCADE"), primary_key=True
+    )
+    site_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("sites.id", ondelete="CASCADE"), primary_key=True
+    )
+    matched_rule_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("site_routing_rules.id", ondelete="SET NULL")
+    )
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class User(Base):
     """A job seeker authenticated through an OAuth provider."""
 

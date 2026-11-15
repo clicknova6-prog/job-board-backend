@@ -18,10 +18,19 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from urllib.parse import unquote_plus, urlsplit, urlunsplit
 
-from sqlalchemy import delete, exists, func, select, update
+from sqlalchemy import delete, exists, func, select, tuple_, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.db.models import ImportRun, Job, JobStaging, Provider
+from app.db.models import (
+    ImportRun,
+    Job,
+    JobSite,
+    JobStaging,
+    Provider,
+    Site,
+    SiteRoutingRule,
+)
 from app.imports.schemas import JobFeedRecord
 
 _SENSITIVE_QUERY_PARAMETER_NAMES = frozenset(
@@ -742,3 +751,125 @@ class SitemapRepository:
             )
             for row in rows
         ]
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRoutingJob:
+    """The minimal job projection site routing evaluates."""
+
+    id: int
+    title: str | None
+    classification: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class SiteRoutingRuleRow:
+    """One active routing rule of an active site."""
+
+    id: int
+    site_id: int
+    provider_id: int | None
+    rule_type: str
+    pattern: str
+
+
+class SiteRoutingRepository:
+    """Data access for maintaining ``job_sites`` assignments."""
+
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def list_provider_ids(self) -> list[int]:
+        """Return every provider id, active or not."""
+        return list(self._session.scalars(select(Provider.id).order_by(Provider.id)))
+
+    def list_active_site_ids(self) -> list[int]:
+        """Return ids of sites that are currently active."""
+        return list(
+            self._session.scalars(
+                select(Site.id).where(Site.is_active.is_(True)).order_by(Site.id)
+            )
+        )
+
+    def list_active_rules(self) -> list[SiteRoutingRuleRow]:
+        """Return active rules belonging to active sites."""
+        rows = self._session.execute(
+            select(
+                SiteRoutingRule.id,
+                SiteRoutingRule.site_id,
+                SiteRoutingRule.provider_id,
+                SiteRoutingRule.rule_type,
+                SiteRoutingRule.pattern,
+            )
+            .join(Site, Site.id == SiteRoutingRule.site_id)
+            .where(SiteRoutingRule.is_active.is_(True), Site.is_active.is_(True))
+            .order_by(SiteRoutingRule.id)
+        )
+        return [SiteRoutingRuleRow(**row) for row in rows.mappings()]
+
+    def load_provider_jobs(
+        self, provider_id: int, *, chunk_size: int = 5000
+    ) -> list[SiteRoutingJob]:
+        """Return the routing projection of every job of one provider.
+
+        Inactive (soft-deleted) jobs are included so job detail pages keep
+        their site scoping during the retention window.
+        """
+        result = self._session.execute(
+            select(Job.id, Job.title, Job.classification)
+            .where(Job.provider_id == provider_id)
+            .execution_options(yield_per=chunk_size)
+        )
+        return [SiteRoutingJob(**row) for row in result.mappings()]
+
+    def load_assignments(
+        self, provider_id: int, site_ids: list[int]
+    ) -> dict[tuple[int, int], int | None]:
+        """Return ``{(job_id, site_id): matched_rule_id}`` for one provider."""
+        if not site_ids:
+            return {}
+        rows = self._session.execute(
+            select(JobSite.job_id, JobSite.site_id, JobSite.matched_rule_id)
+            .join(Job, Job.id == JobSite.job_id)
+            .where(Job.provider_id == provider_id, JobSite.site_id.in_(site_ids))
+        )
+        return {(job_id, site_id): rule_id for job_id, site_id, rule_id in rows}
+
+    def upsert_assignments(
+        self, assignments: list[tuple[int, int, int]], *, batch_size: int = 5000
+    ) -> None:
+        """Insert or re-point ``(job_id, site_id, rule_id)`` assignments."""
+        for start in range(0, len(assignments), batch_size):
+            batch = assignments[start : start + batch_size]
+            statement = pg_insert(JobSite).values(
+                [
+                    {"job_id": job_id, "site_id": site_id, "matched_rule_id": rule_id}
+                    for job_id, site_id, rule_id in batch
+                ]
+            )
+            self._session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[JobSite.job_id, JobSite.site_id],
+                    set_={"matched_rule_id": statement.excluded.matched_rule_id},
+                )
+            )
+
+    def delete_assignments(
+        self, keys: list[tuple[int, int]], *, batch_size: int = 5000
+    ) -> None:
+        """Remove ``(job_id, site_id)`` assignments."""
+        for start in range(0, len(keys), batch_size):
+            batch = keys[start : start + batch_size]
+            self._session.execute(
+                delete(JobSite).where(
+                    tuple_(JobSite.job_id, JobSite.site_id).in_(batch)
+                )
+            )
+
+    def commit(self) -> None:
+        """Commit the current transaction."""
+        self._session.commit()
+
+    def rollback(self) -> None:
+        """Roll back the current transaction."""
+        self._session.rollback()
