@@ -2,64 +2,69 @@
 
 ## Project
 
-This is a job board backend built around multi-provider job feed ingestion — currently a single provider, Jobg8, delivering an hourly XML snapshot (~350k jobs). PostgreSQL is the source of truth. The backend is **feature-complete, audited, and handed off to the frontend team.** A frontend partner (same GitHub account) runs it locally and consumes the public API. Work from here is frontend-integration support: bug reports, contract questions, and occasional backend fixes only when a concrete gap is found — not new feature development by default.
+A **multi-site job hub**: one backend ingests every job feed (currently Jobg8, an hourly XML snapshot of ~350k jobs) into one PostgreSQL database and serves several niche job board sites from it. Jobs are assigned to sites by admin-editable routing rules. Build order: **IT & Tech first, Healthcare & Medical second**, further sites later. Each site's frontend (built by the frontend partner, same GitHub account) consumes the site-scoped public API.
+
+Status: multi-site work on branch `feat/multi-site` (Nov 2026). Never deployed yet; next step is Oracle Cloud Free (ARM, Docker) with daily backups. Nothing should depend on a developer laptop.
 
 ## Locked Technology Decisions (DO NOT CHANGE WITHOUT EXPLICIT APPROVAL)
 
 - FastAPI + SQLAlchemy 2.0 async for the API layer; sync SQLAlchemy for the import/ingestion layer (streaming XML must stay synchronous)
 - PostgreSQL + hybrid relational/JSONB (`source_payload` preserves the raw feed record verbatim, never normalized values)
-- Celery + Redis (Memurai on Windows, no Docker/WSL) for background jobs; Celery Beat is DB-driven (reads `Provider.schedule_interval_minutes`), not a static schedule
+- Celery + Redis for background jobs; Celery Beat is DB-driven (reads `Provider.schedule_interval_minutes`), not a static schedule
 - Alembic for all schema migrations — no manual schema changes ever
-- Repository pattern: ORM objects touched only inside `app/db/repositories.py` (sync, import pipeline) or `app/db/*_repositories.py` (async, API-facing) — never directly from service/task/router code
-- Thin Celery tasks; real logic lives in service classes (`ImportService`, `PromotionService`, etc.)
-- Public API field names are decoupled from internal DB column names via Pydantic serialization aliases (e.g. `advertiser_name`→`company`, `classification`→`category`, `apply_url`→`job_url`) — insulates the frontend from internal refactors
+- Repository pattern: ORM objects touched only inside `app/db/repositories.py` (sync: import pipeline, routing, sitemaps) or `app/db/*_repositories.py` (async, API-facing) — never directly from service/task/router code
+- Thin Celery tasks; real logic lives in service classes (`ImportService`, `PromotionService`, `SiteRoutingService`, ...)
+- Public API field names are decoupled from internal DB column names via Pydantic serialization aliases (e.g. `advertiser_name`→`company`, `classification`→`category`, `apply_url`→`job_url`)
+- **One hub, site-scoped API** (not one DB per site). Sites identified by the `X-Site-Key` header
+
+## Multi-Site Architecture
+
+- Tables: `sites` (slug, name, `site_key`, `base_url`, `is_active`, `config` JSONB), `site_routing_rules`, `job_sites` (many-to-many, records `matched_rule_id`)
+- **Routing rules** (per site, optional `provider_id`), evaluated per job: any matching `exclude_title` removes the job; else first matching `include_classification` (exact normalized provider classification) or `include_title` (whole-word phrase) in rule-id order assigns it. Pure matcher: `app/sites/matcher.py`
+- `SiteRoutingService` recomputes desired assignments per provider and applies only the diff. Runs after every completed import (failure never fails the import) and on demand (`POST /admin/api/sites/routing/run` → Celery `route_all_sites`). Inactive jobs keep their assignments during retention so detail pages stay scoped. Deactivated sites are left untouched
+- Whether a job may appear on several sites is decided by real data later; the schema already allows it
+- **Public API** (`/api/v1/jobs`, `/jobs/filters`, `/jobs/{slug}`) requires `X-Site-Key` (`app/api/site_dependencies.py`): missing → 400, unknown/inactive → 404, browser `Origin` not belonging to the site (its `base_url` + `config.cors_origins`) nor hub-wide (`CORS_ALLOWED_ORIGINS`) → 403. All reads filter by `job_sites`; another site's job is 404
+- **CORS**: `SiteAwareCORSMiddleware` allows env origins plus origins of active sites (60s TTL registry, keeps last known set on DB errors; invalidated on admin site edits)
+- **Filters cache**: key `filters:v{version}:site:{id}`; one version bump (after promotion and after routing) invalidates every site
+- **SEO** per site from `sites.base_url`: sitemaps generated into `SITEMAP_OUTPUT_DIR/<slug>/`, served at `/sites/{slug}/robots.txt`, `/sites/{slug}/sitemap.xml`, `/sites/{slug}/sitemap-{n}.xml.gz` (each frontend rewrites its root paths to these). Job detail returns `canonical_url` = `{base_url}/job/{slug}`; JSON-LD `url` is that page
+- **Apply** links go straight to the provider: `job_url` = `jobs.apply_url` (per-site click tracking deferred)
+- **Admin**: `/admin/api/sites` CRUD, `/{id}/rules` CRUD, `/{id}/routing/preview` (dry run of saved or draft rules, writes nothing), `/routing/run`. All mutations audited in `admin_audit_logs`
+- Seed/tooling: `config/sites/it-tech.json` + `python -m scripts.seed_sites` (idempotent), `python -m scripts.preview_site_routing <slug> [--csv ...]`
 
 ## Architecture Principles
 
-- `provider_id` + `source_job_id` is the job identity (never `source_job_id` alone — only unique within a provider)
-- Staging → validate → anomaly-check → promote: the importer never writes directly to `jobs`
-- Non-essential field parse failures fall back to `None` and are logged in `import_runs.field_fallback_warnings`, never reject the record. Only `sender_reference`, `title`, `description`, `apply_url` are essential/reject-worthy
-- Unknown feed fields are captured via `extra="allow"` and logged in `import_runs.unmapped_fields`, never rejected
+- `provider_id` + `source_job_id` is the job identity (never `source_job_id` alone)
+- Staging → validate → anomaly-check → promote → route to sites: the importer never writes directly to `jobs`
+- Non-essential field parse failures fall back to `None` and are logged in `import_runs.field_fallback_warnings`; only `sender_reference`, `title`, `description`, `apply_url` are reject-worthy
+- Unknown feed fields are captured via `extra="allow"` and logged in `import_runs.unmapped_fields`
 - `payload_hash` is computed over the raw `source_record`, not normalized values
-- Anomaly thresholds and soft-delete retention window are configurable per-provider via `Provider.config` JSONB, never hardcoded
-- Public list endpoints paginate by KEYSET only, never OFFSET. Tiebreaker column direction must match the primary sort direction
-- `jobs.apply_url` is the single field feeding the public Apply link (exposed as `job_url`); the Apply button links straight to it
-- The affiliate/promo redirect system (`/r/{short_hash}`, `affiliate_links`, admin link generator) was REMOVED in Nov 2026 — all traffic now comes from our own job board sites. Do not reintroduce it without explicit approval
-- Candidate/job-seeker auth is Google OAuth only — no email/password for candidates (admin retains separate full email/password auth)
+- Anomaly thresholds and soft-delete retention are per-provider in `Provider.config` JSONB, never hardcoded
+- Public list endpoints paginate by KEYSET only, never OFFSET; tiebreaker direction matches the primary sort. Here `sort="-last_imported_at"` means ascending
+- `/jobs/filters` is registered before `/jobs/{slug}`
+- The affiliate/promo redirect system was REMOVED in Nov 2026 — traffic comes only from our own sites. Do not reintroduce without explicit approval
+- Candidate auth is Google OAuth only; admins have separate email/password auth
 
-## Current Status — BACKEND COMPLETE
+## Deferred (not in progress)
 
-All spec sections (public API, admin panel §19, SEO/sitemap, auth, rate limiting, caching) are built, tested, and merged to `main`. A full read-only production audit (Sept 2026) found 0 Critical / 0 unresolved High issues; findings fixed are documented in `AUDIT_REPORT.md` at repo root. Full test suite: 424 passing (after affiliate removal), 100% coverage on `app/tasks/*.py` and `app/celery_app.py`.
+- Per-site Apply click tracking; search/listing result caching (only filter metadata is cached)
+- Site-scoping of saved jobs (`/api/v1/me`) — saved jobs are hub-wide for now
+- Cross-site canonical choice for jobs on several sites (each site is currently self-canonical)
+- Deleting sites via API (deactivate instead); XML export feature
 
-**Built (all of it):**
-- Full ORM schema, importer/promotion pipeline, streaming XML parsing, staging, anomaly detection
-- `app/api/v1/jobs.py` — public search/listing + job detail (`GET /api/v1/jobs/{slug}`), keyset pagination, full-text search via `search_vector`
-- Admin panel — provider management, import history/health, rejected records, anomaly warnings, manual import trigger, admin audit logging (`admin_imports.py`, `admin_providers.py`)
-- Auth — JWT access/refresh for public users + admins, Google OAuth, refresh-token-family revocation on reuse detection
-- SEO — sitemap generation, canonical URLs, structured data support
-- Celery Beat DB-driven scheduling, hard-delete cleanup worker (12hr+ configurable retention)
-- Rate limiting (auth + admin manual-import-trigger endpoints), Redis-cached filter metadata (version-invalidated)
-- `scripts/seed_dev_data.py` + `SETUP.md` — full local Windows setup guide for the frontend partner
+## Development Environment
 
-**Explicitly deferred, not in progress:**
-- Search/listing result caching (filter metadata is cached; result caching deferred until real production traffic exists to measure against)
-- Staging/VPS deployment (frontend partner runs backend locally via GitHub access; Hostinger VPS is the pick if revisited)
-- XML export (outgoing) feature — deprioritized indefinitely, no confirmed use case
-- Low/Nitpick audit findings (PKCE, CORS validation hardening, error-shape edge-case consistency) — reviewed, deliberately skipped as optional polish
-
-## Windows Development Environment
-
-- No Docker, no WSL. Local PostgreSQL 18 service, Memurai for Redis on port 6379
-- Python venv at `.venv`, activate before running anything
-- Config loaded via `python-dotenv` from `.env` (utf-8-sig encoding, has a BOM)
-- Celery on Windows requires `--pool=solo`
-- Scripts in `scripts/` run as `python -m scripts.scriptname`, not directly, unless they have the sys.path bootstrap
+- Cloud-first: work in a cloud clone; local PostgreSQL + Redis for tests. On Windows (legacy): PostgreSQL service, Memurai, `.venv`, Celery `--pool=solo`
+- Config via `python-dotenv` from `.env` (utf-8-sig); see `.env.example`
+- Tests: `uv run python -m pytest -q` (DB tests create/migrate `job_board_test` from `DATABASE_URL`)
+- Scripts run as `python -m scripts.<name>`
+- `openapi.json` is regenerated with `json.dumps(app.openapi())` whenever the API changes
 
 ## Working Rules
 
-- This is a **maintenance/integration phase**, not greenfield development. Don't propose new features unless the frontend partner surfaces a concrete gap.
-- Do not silently change requirements — if something conflicts with locked decisions above, say "Potential issue / DECISION REQUIRED" and stop, don't guess
-- Do not touch files outside what's explicitly asked in a given task
-- All schema changes go through Alembic migrations, reviewed before applying
-- Prefer small, scoped diffs over large rewrites
-- Live verification (curl smoke test + DB state check) required before any commit
+- Audit before building; keep this file current as authoritative state
+- Do not silently change requirements — conflicts with locked decisions: say "Potential issue / DECISION REQUIRED" and stop
+- One concern per commit (`feat:` / `fix:` / `chore:` / `test:` / `docs:`); verify pushes (`git log origin/<branch>..HEAD` blank)
+- All schema changes through Alembic migrations, reviewed before applying
+- Prefer small, scoped diffs; don't reformat unrelated code (several older files are not ruff-formatted)
+- Live verification (HTTP smoke test + DB state check) before any commit
+- For every backend change, check whether the frontend team needs to know and draft the note
