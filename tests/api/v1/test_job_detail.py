@@ -21,7 +21,7 @@ from sqlalchemy.pool import NullPool
 from app.db.async_session import get_async_session
 from app.db.models import Job, Provider
 from app.main import app
-from tests.api.v1.site_seed import SITE_HEADERS, seed_test_site
+from tests.api.v1.site_seed import SITE_HEADERS, TEST_SITE_BASE_URL, seed_test_site
 
 BASE_TIME = datetime(2026, 8, 1, 12, 0, 0, tzinfo=UTC)
 EXPECTED_KEYS = {
@@ -48,6 +48,7 @@ EXPECTED_KEYS = {
     "salary_period",
     "created_at",
     "source_updated_at",
+    "canonical_url",
     "structured_data",
 }
 
@@ -211,7 +212,10 @@ def test_active_job_returns_full_public_detail(test_database_url: str) -> None:
                 },
             }
             assert structured_data["directApply"] is True
-            assert structured_data["url"] == row["apply_url"]
+            assert body["canonical_url"] == (
+                f"{TEST_SITE_BASE_URL}/job/detail-test-job-1"
+            )
+            assert structured_data["url"] == body["canonical_url"]
             assert "validThrough" not in structured_data
 
     _run(run)

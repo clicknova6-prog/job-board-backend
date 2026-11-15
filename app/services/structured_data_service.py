@@ -18,8 +18,13 @@ def _present(value: str | None) -> str | None:
     return stripped or None
 
 
-def build_job_posting_ld(job: JobDetailRecord) -> dict[str, Any] | None:
-    """Return ready-to-embed JobPosting JSON-LD for an active job."""
+def build_job_posting_ld(
+    job: JobDetailRecord, *, canonical_url: str
+) -> dict[str, Any] | None:
+    """Return ready-to-embed JobPosting JSON-LD for an active job.
+
+    ``url`` is the job's page on the calling site, not the Apply target.
+    """
     if not job.is_active:
         return None
 
@@ -35,7 +40,7 @@ def build_job_posting_ld(job: JobDetailRecord) -> dict[str, Any] | None:
         },
         "datePosted": job.first_imported_at.isoformat(),
         "directApply": True,
-        "url": job.apply_url,
+        "url": canonical_url,
     }
 
     employment_type = schema_employment_type(job.employment_type)

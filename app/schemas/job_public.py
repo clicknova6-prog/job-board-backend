@@ -59,6 +59,9 @@ class JobDetail(JobSummary):
         default=None,
         validation_alias="content_updated_at",
     )
+    canonical_url: str = Field(
+        description="Absolute URL of this job on the calling site (rel=canonical)."
+    )
     structured_data: dict[str, Any] | None
 
 

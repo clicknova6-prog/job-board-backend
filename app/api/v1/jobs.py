@@ -23,6 +23,7 @@ from app.schemas.job_public import (
     JobListResponse,
     JobSummary,
 )
+from app.services.sitemap_service import job_canonical_url
 from app.services.structured_data_service import build_job_posting_ld
 
 router = APIRouter()
@@ -157,6 +158,7 @@ async def get_job_detail(
             detail="Job not found",
         )
 
+    canonical_url = job_canonical_url(site.base_url, record.slug)
     return JobDetail(
         id=record.id,
         slug=record.slug,
@@ -181,5 +183,6 @@ async def get_job_detail(
         salary_period=record.salary_period,
         created_at=record.created_at,
         content_updated_at=record.content_updated_at,
-        structured_data=build_job_posting_ld(record),
+        canonical_url=canonical_url,
+        structured_data=build_job_posting_ld(record, canonical_url=canonical_url),
     )

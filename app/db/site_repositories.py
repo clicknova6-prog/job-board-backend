@@ -82,6 +82,21 @@ class PublicSiteRepository:
         )
         return SiteRecord(**row) if row is not None else None
 
+    async def get_active_by_slug(self, slug: str) -> SiteRecord | None:
+        """Return the active site with ``slug``, if any."""
+        row = (
+            (
+                await self._session.execute(
+                    select(
+                        Site.id, Site.slug, Site.name, Site.base_url, Site.config
+                    ).where(Site.slug == slug, Site.is_active.is_(True))
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        return SiteRecord(**row) if row is not None else None
+
     async def list_active_allowed_origins(self) -> frozenset[str]:
         """Return the union of allowed browser origins across active sites."""
         rows = await self._session.execute(

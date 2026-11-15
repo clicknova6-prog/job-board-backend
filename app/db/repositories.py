@@ -729,17 +729,41 @@ class SitemapJob:
     last_imported_at: datetime
 
 
+@dataclass(frozen=True, slots=True)
+class SitemapSite:
+    """An active site that gets its own sitemap set."""
+
+    id: int
+    slug: str
+    base_url: str
+
+
 class SitemapRepository:
     """Read-only canonical-job access for sitemap generation."""
 
     def __init__(self, session: Session) -> None:
         self._session = session
 
-    def list_active_jobs_after(self, *, after_id: int, limit: int) -> list[SitemapJob]:
-        """Return one ID-keyset page of active jobs in stable order."""
+    def list_active_sites(self) -> list[SitemapSite]:
+        """Return every active site in stable order."""
+        rows = self._session.execute(
+            select(Site.id, Site.slug, Site.base_url)
+            .where(Site.is_active.is_(True))
+            .order_by(Site.id)
+        )
+        return [SitemapSite(id=r.id, slug=r.slug, base_url=r.base_url) for r in rows]
+
+    def list_active_jobs_after(
+        self, *, site_id: int, after_id: int, limit: int
+    ) -> list[SitemapJob]:
+        """Return one ID-keyset page of a site's active jobs in stable order."""
         rows = self._session.execute(
             select(Job.id, Job.slug, Job.last_imported_at)
-            .where(Job.is_active.is_(True), Job.id > after_id)
+            .where(
+                Job.is_active.is_(True),
+                Job.id > after_id,
+                exists().where(JobSite.job_id == Job.id, JobSite.site_id == site_id),
+            )
             .order_by(Job.id)
             .limit(limit)
         )

@@ -10,15 +10,20 @@ import pytest
 # app.celery_app is imported first on purpose: its autodiscovery loads every
 # task module, so importing a task module first is a circular import.
 from app.celery_app import celery_app
-from app.services.sitemap_service import SitemapManifest
+from app.services.sitemap_service import SitemapManifest, SitemapRunManifest
 from app.tasks import sitemap_tasks
 from app.tasks.sitemap_tasks import generate_sitemaps_task
 
 GENERATED_AT = datetime(2026, 8, 31, 12, 0, tzinfo=UTC)
-MANIFEST = SitemapManifest(
-    filenames=["sitemap-1.xml.gz", "sitemap-2.xml.gz"],
-    total_job_count=75_000,
+MANIFEST = SitemapRunManifest(
     generated_at=GENERATED_AT,
+    sites=[
+        SitemapManifest(
+            site_slug="it-tech",
+            filenames=["sitemap-1.xml.gz", "sitemap-2.xml.gz"],
+            total_job_count=75_000,
+        )
+    ],
 )
 
 
@@ -32,9 +37,14 @@ def test_task_generates_sitemaps_and_returns_a_serializable_manifest(
 
     generate.assert_called_once_with()
     assert result == {
-        "filenames": ["sitemap-1.xml.gz", "sitemap-2.xml.gz"],
-        "total_job_count": 75_000,
         "generated_at": GENERATED_AT.isoformat(),
+        "sites": [
+            {
+                "site_slug": "it-tech",
+                "filenames": ["sitemap-1.xml.gz", "sitemap-2.xml.gz"],
+                "total_job_count": 75_000,
+            }
+        ],
     }
     # The Celery result backend only carries JSON, so the timestamp must not
     # leave the task as a datetime.
