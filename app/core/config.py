@@ -71,7 +71,6 @@ class RateLimitSettings:
     admin_auth_refresh: str
     admin_api: str
     admin_import_trigger: str
-    affiliate_redirect: str
 
     @classmethod
     def from_environment(cls) -> RateLimitSettings:
@@ -109,10 +108,6 @@ class RateLimitSettings:
             admin_import_trigger=os.environ.get(
                 "RATE_LIMIT_ADMIN_IMPORT_TRIGGER",
                 "5/minute",
-            ),
-            affiliate_redirect=os.environ.get(
-                "RATE_LIMIT_AFFILIATE_REDIRECT",
-                "600/minute",
             ),
         )
 

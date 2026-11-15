@@ -15,7 +15,7 @@ from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
-from app.db.models import AffiliateLink, Job
+from app.db.models import Job
 
 # Must match the regconfig baked into the jobs.search_vector generated column
 # (see alembic revision b3c91f4d27ae); a mismatch silently returns no rows.
@@ -42,7 +42,6 @@ class JobSummaryRecord:
     remote_status_source: str | None
     experience_level: str | None
     experience_level_source: str | None
-    redirect_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +73,6 @@ class JobDetailRecord:
     experience_level: str | None
     experience_level_source: str | None
     is_active: bool
-    redirect_url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,7 +152,6 @@ class PublicJobRepository:
             Job.area,
             Job.postal_code,
             Job.apply_url,
-            AffiliateLink.short_hash,
             Job.last_imported_at,
             Job.description,
             Job.advertiser_name,
@@ -170,20 +167,13 @@ class PublicJobRepository:
             Job.experience_level,
             Job.experience_level_source,
             Job.is_active,
-        ).outerjoin(
-            AffiliateLink, AffiliateLink.job_id == Job.id
         ).where(Job.slug == slug)
 
         result = await self._session.execute(statement)
         row = result.mappings().one_or_none()
         if row is None:
             return None
-        values = dict(row)
-        short_hash = values.pop("short_hash")
-        values["redirect_url"] = (
-            f"/r/{short_hash}" if short_hash is not None else None
-        )
-        return JobDetailRecord(**values)
+        return JobDetailRecord(**row)
 
     async def search(
         self,
@@ -209,7 +199,6 @@ class PublicJobRepository:
                 Job.country_name,
                 Job.location,
                 Job.apply_url,
-                AffiliateLink.short_hash,
                 Job.first_imported_at,
                 Job.last_imported_at,
                 Job.is_active,
@@ -217,9 +206,7 @@ class PublicJobRepository:
                 Job.remote_status_source,
                 Job.experience_level,
                 Job.experience_level_source,
-            )
-            .outerjoin(AffiliateLink, AffiliateLink.job_id == Job.id)
-            .where(Job.is_active.is_(True)),
+            ).where(Job.is_active.is_(True)),
             filters,
         )
 
@@ -245,15 +232,7 @@ class PublicJobRepository:
         statement = statement.limit(limit)
 
         result = await self._session.execute(statement)
-        records = []
-        for row in result.mappings():
-            values = dict(row)
-            short_hash = values.pop("short_hash")
-            values["redirect_url"] = (
-                f"/r/{short_hash}" if short_hash is not None else None
-            )
-            records.append(JobSummaryRecord(**values))
-        return records
+        return [JobSummaryRecord(**row) for row in result.mappings()]
 
     @staticmethod
     def _apply_filters(statement: Select, filters: JobSearchFilters) -> Select:

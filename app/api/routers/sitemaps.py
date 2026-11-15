@@ -21,7 +21,6 @@ def robots_txt() -> PlainTextResponse:
         "Allow: /job/\n"
         "Disallow: /*?\n"
         "Disallow: /admin\n"
-        "Disallow: /r/\n"
         "\n"
         f"Sitemap: {base_url}/sitemap.xml\n"
     )

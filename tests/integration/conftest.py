@@ -1,8 +1,8 @@
 """Test database bootstrap for the Postgres-backed import pipeline tests.
 
 These tests exercise the real staging -> promotion pipeline: check
-constraints, the generated-column rewrite on ``jobs``, ``ON CONFLICT DO
-NOTHING`` affiliate-link inserts and a bulk soft-delete UPDATE. None of that
+constraints, the generated-column rewrite on ``jobs``, and a bulk
+soft-delete UPDATE. None of that
 survives a stand-in, so they run against a real database.
 
 The bootstrap deliberately mirrors ``tests/api/v1/conftest.py``: the same

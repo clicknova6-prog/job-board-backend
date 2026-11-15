@@ -11,7 +11,7 @@ This is a job board backend built around multi-provider job feed ingestion — c
 - Celery + Redis (Memurai on Windows, no Docker/WSL) for background jobs; Celery Beat is DB-driven (reads `Provider.schedule_interval_minutes`), not a static schedule
 - Alembic for all schema migrations — no manual schema changes ever
 - Repository pattern: ORM objects touched only inside `app/db/repositories.py` (sync, import pipeline) or `app/db/*_repositories.py` (async, API-facing) — never directly from service/task/router code
-- Thin Celery tasks; real logic lives in service classes (`ImportService`, `PromotionService`, `AffiliateService`, etc.)
+- Thin Celery tasks; real logic lives in service classes (`ImportService`, `PromotionService`, etc.)
 - Public API field names are decoupled from internal DB column names via Pydantic serialization aliases (e.g. `advertiser_name`→`company`, `classification`→`category`, `apply_url`→`job_url`) — insulates the frontend from internal refactors
 
 ## Architecture Principles
@@ -23,25 +23,23 @@ This is a job board backend built around multi-provider job feed ingestion — c
 - `payload_hash` is computed over the raw `source_record`, not normalized values
 - Anomaly thresholds and soft-delete retention window are configurable per-provider via `Provider.config` JSONB, never hardcoded
 - Public list endpoints paginate by KEYSET only, never OFFSET. Tiebreaker column direction must match the primary sort direction
-- `jobs.apply_url` is the single field feeding both the public Apply link and the `/r/{short_hash}` affiliate redirect
-- Affiliate `redirect_url` links are auto-generated in bulk during promotion (`app/imports/promotion.py`) — not a manual-only admin action
+- `jobs.apply_url` is the single field feeding the public Apply link (exposed as `job_url`); the Apply button links straight to it
+- The affiliate/promo redirect system (`/r/{short_hash}`, `affiliate_links`, admin link generator) was REMOVED in Nov 2026 — all traffic now comes from our own job board sites. Do not reintroduce it without explicit approval
 - Candidate/job-seeker auth is Google OAuth only — no email/password for candidates (admin retains separate full email/password auth)
 
 ## Current Status — BACKEND COMPLETE
 
-All spec sections (public API, admin panel §19, affiliate system, SEO/sitemap, auth, rate limiting, caching) are built, tested, and merged to `main`. A full read-only production audit (Sept 2026) found 0 Critical / 0 unresolved High issues; findings fixed are documented in `AUDIT_REPORT.md` at repo root. Full test suite: 456 passing, 100% coverage on `app/tasks/*.py` and `app/celery_app.py`.
+All spec sections (public API, admin panel §19, SEO/sitemap, auth, rate limiting, caching) are built, tested, and merged to `main`. A full read-only production audit (Sept 2026) found 0 Critical / 0 unresolved High issues; findings fixed are documented in `AUDIT_REPORT.md` at repo root. Full test suite: 424 passing (after affiliate removal), 100% coverage on `app/tasks/*.py` and `app/celery_app.py`.
 
 **Built (all of it):**
 - Full ORM schema, importer/promotion pipeline, streaming XML parsing, staging, anomaly detection
 - `app/api/v1/jobs.py` — public search/listing + job detail (`GET /api/v1/jobs/{slug}`), keyset pagination, full-text search via `search_vector`
-- `app/api/routers/redirect.py` — `/r/{short_hash}` affiliate redirect, including post-hard-delete fallback page
-- Admin panel — provider management, import history/health, rejected records, anomaly warnings, manual import trigger, affiliate link generator, admin audit logging (`admin_imports.py`, `admin_providers.py`, `admin_affiliate.py`)
+- Admin panel — provider management, import history/health, rejected records, anomaly warnings, manual import trigger, admin audit logging (`admin_imports.py`, `admin_providers.py`)
 - Auth — JWT access/refresh for public users + admins, Google OAuth, refresh-token-family revocation on reuse detection
 - SEO — sitemap generation, canonical URLs, structured data support
 - Celery Beat DB-driven scheduling, hard-delete cleanup worker (12hr+ configurable retention)
 - Rate limiting (auth + admin manual-import-trigger endpoints), Redis-cached filter metadata (version-invalidated)
 - `scripts/seed_dev_data.py` + `SETUP.md` — full local Windows setup guide for the frontend partner
-- `scripts/backfill_affiliate_links.py` — one-time backfill, already run against full dataset (349,950 links, idempotent-verified)
 
 **Explicitly deferred, not in progress:**
 - Search/listing result caching (filter metadata is cached; result caching deferred until real production traffic exists to measure against)

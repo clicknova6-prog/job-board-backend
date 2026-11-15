@@ -7,7 +7,6 @@ promotion decides what those records mean for the live jobs table.
 
 import logging
 import re
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -104,8 +103,6 @@ class PromotionService:
                 deactivated_jobs = repo.deactivate_stale_jobs(
                     run.provider_id, run.id, now
                 )
-
-                self._backfill_missing_affiliate_links(repo, run=run)
 
                 repo.finish_promotion(
                     run,
@@ -236,17 +233,6 @@ class PromotionService:
 
             repo.commit()
 
-            self._generate_affiliate_links(
-                repo,
-                provider_id=run.provider_id,
-                load_job_ids=lambda: [job.id for job, _ in new_in_batch],
-                failure_message=(
-                    "Affiliate-link generation failed after promotion batch: "
-                    "run_id=%d provider_id=%d batch_start=%d"
-                ),
-                failure_args=(run.id, run.provider_id, start),
-            )
-
             self.logger.info(
                 "Promotion batch committed: run_id=%d batch=%d new=%d updated=%d unchanged=%d",
                 run.id,
@@ -257,47 +243,6 @@ class PromotionService:
             )
 
         return new_jobs, updated_jobs, unchanged_jobs
-
-    def _backfill_missing_affiliate_links(
-        self,
-        repo: PromotionRepository,
-        *,
-        run: ImportRun,
-    ) -> None:
-        """Generate affiliate links for active jobs of this provider missing one."""
-        self._generate_affiliate_links(
-            repo,
-            provider_id=run.provider_id,
-            load_job_ids=lambda: repo.find_active_jobs_missing_affiliate_link(
-                run.provider_id
-            ),
-            failure_message=(
-                "Affiliate-link backfill failed after promotion: "
-                "run_id=%d provider_id=%d"
-            ),
-            failure_args=(run.id, run.provider_id),
-        )
-
-    def _generate_affiliate_links(
-        self,
-        repo: PromotionRepository,
-        *,
-        provider_id: int,
-        load_job_ids: Callable[[], list[int]],
-        failure_message: str,
-        failure_args: tuple[object, ...],
-    ) -> None:
-        """Create affiliate links for the loaded job ids, isolating any failure.
-
-        Affiliate links are best-effort: a failure rolls back its own
-        transaction and is logged, never propagated into the promotion.
-        """
-        try:
-            repo.bulk_create_affiliate_links(provider_id, load_job_ids())
-            repo.commit()
-        except Exception:
-            repo.rollback()
-            self.logger.exception(failure_message, *failure_args)
 
     def _mark_failed(self, error: BaseException) -> None:
         """Persist promotion failure after its working transaction rolls back."""
