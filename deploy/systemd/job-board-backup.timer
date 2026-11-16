@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Job Board PostgreSQL backup
+
+[Timer]
+# 03:15 Pakistan time, outside the busiest traffic; catches up after downtime.
+OnCalendar=*-*-* 03:15:00 Asia/Karachi
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+[Unit]
+Description=Job Board PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+# Default user on OCI Ubuntu images; must be in the docker group.
+User=ubuntu
+# Path of the clone on the VM; adjust if you cloned elsewhere.
+WorkingDirectory=/opt/job-board-backend
+ExecStart=/opt/job-board-backend/deploy/backup.sh
+Nice=10
+IOSchedulingClass=idle
